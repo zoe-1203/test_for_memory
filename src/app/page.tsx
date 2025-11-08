@@ -1,103 +1,163 @@
-import Image from "next/image";
+'use client';
+import { useEffect, useMemo, useState } from 'react';
+
+type MemoryItem = { id: string; text: string };
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  // ---- 输入问题 ----
+  const [question, setQuestion] = useState('');
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  // ---- Memory（可增删、持久化 localStorage）----
+  const [memoryText, setMemoryText] = useState('');
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+
+  // localStorage key
+  const STORAGE_KEY = 'tools-mvp-memories';
+
+  // 初始读 localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setMemories(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  // 保存到 localStorage
+  const saveMemories = () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(memories));
+    alert('Memory 已保存到本地（localStorage）。');
+  };
+
+  // 增加一条 memory
+  const addMemory = () => {
+    const text = memoryText.trim();
+    if (!text) return;
+    setMemories((prev) => [...prev, { id: String(Date.now()), text }]);
+    setMemoryText('');
+  };
+
+  // 删除一条 memory
+  const removeMemory = (id: string) => {
+    setMemories((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  // ---- 抽牌按钮的点击（阶段 1 先打日志）----
+  const onDrawClick = () => {
+    console.log('[DEBUG] 点击抽牌：', { question, memories });
+    if (!question.trim()) {
+      alert('请先在输入框里键入你的问题～');
+      return;
+    }
+    alert('已触发“抽牌”逻辑（阶段 1）。请打开浏览器控制台查看日志。');
+  };
+
+  const memoryCount = useMemo(() => memories.length, [memories]);
+
+  return (
+    <main style={{ maxWidth: 820, margin: '0 auto', padding: 24, fontFamily: 'ui-sans-serif, system-ui' }}>
+      <h1 style={{ fontSize: 28, marginBottom: 8 }}>Tarot Tools MVP</h1>
+      <p style={{ color: '#555', marginBottom: 24 }}>
+        阶段 1：先完成 UI 与交互（输入问题、抽牌按钮、Memory 增删保存）。点击抽牌会在控制台打日志。
+      </p>
+
+      {/* 输入问题 */}
+      <section style={{ marginBottom: 24 }}>
+        <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>你的问题 / 主题：</label>
+        <textarea
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="例如：我该如何推进目前的感情关系？"
+          rows={4}
+          style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid #ddd' }}
+        />
+      </section>
+
+      {/* 抽牌按钮 */}
+      <section style={{ marginBottom: 32 }}>
+        <button
+          onClick={onDrawClick}
+          style={{
+            padding: '10px 16px',
+            fontWeight: 600,
+            borderRadius: 10,
+            border: '1px solid #111',
+            background: '#111',
+            color: '#fff',
+            cursor: 'pointer'
+          }}
+        >
+          🃏 抽牌并解读（阶段 1：仅日志）
+        </button>
+      </section>
+
+      {/* Memory 面板 */}
+      <section>
+        <h2 style={{ fontSize: 20, marginBottom: 12 }}>Memory（你可以自定义，后续工具会引用）</h2>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            value={memoryText}
+            onChange={(e) => setMemoryText(e.target.value)}
+            placeholder="输入一条 memory（按下 + 号添加）"
+            style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+          />
+          <button
+            onClick={addMemory}
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              border: '1px solid #ccc',
+              background: '#f5f5f5',
+              cursor: 'pointer'
+            }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            ＋
+          </button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        {memoryCount === 0 ? (
+          <p style={{ color: '#777' }}>暂无 memory。可以添加如：对方星座、你们沟通频率、你的边界需求、过往塔罗结论等。</p>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {memories.map((m) => (
+              <li key={m.id}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                           padding: '10px 12px', border: '1px solid #eee', borderRadius: 8, marginBottom: 8 }}>
+                <span style={{ whiteSpace: 'pre-wrap' }}>{m.text}</span>
+                <button
+                  onClick={() => removeMemory(m.id)}
+                  style={{
+                    marginLeft: 12,
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: '1px solid #ddd',
+                    background: '#fff',
+                    cursor: 'pointer'
+                  }}
+                >
+                  删除
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button
+            onClick={saveMemories}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #111',
+              background: '#111',
+              color: '#fff',
+              cursor: 'pointer'
+            }}
+          >
+            保存到本地
+          </button>
+          <span style={{ color: '#555', alignSelf: 'center' }}>当前 {memoryCount} 条</span>
+        </div>
+      </section>
+    </main>
   );
 }
