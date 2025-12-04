@@ -1915,7 +1915,7 @@ export default function AnnualFortunePage() {
                     {r.areaName}（{r.card.cnName} / {r.card.reversed ? '逆位' : '正位'}）
                   </h3>
                   <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
-                    ⚡"{r.hookSentece || '（未提供）'}"
+                    ⚡&quot;{r.hookSentece || '（未提供）'}&quot;
                   </div>
                   <div
                     style={{

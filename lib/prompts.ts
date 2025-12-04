@@ -485,25 +485,23 @@ example:
 注意：你只需要输出上述 Json 对象本身，不需要额外说明文字。`;
 }
 
-// /**
-//  * 六大领域总览 Prompt
-//  * 用于生成六大领域的整体总览
-//  *
-//  * 旧版本保留作参考：
-//  * export function getAnnualFortuneAreaOverviewPrompt(areaInfoText: string): string { ... }
-//  */
-// export function getAnnualFortuneAreaOverviewPrompt(areaInfoText: string): string {
-//   return `请你根据我的6个领域抽到的牌和运势，给我一个六大领域的整体总览。
+/**
+ * 六大领域总览 Prompt
+ * 用于生成六大领域的整体总览
+ * @deprecated 此函数已不再使用，startingOverview 现在从 radar API 返回
+ */
+export function getAnnualFortuneAreaOverviewPrompt(areaInfoText: string): string {
+  return `请你根据我的6个领域抽到的牌和运势，给我一个六大领域的整体总览。
 
-// ${areaInfoText}
+${areaInfoText}
 
-// 输出格式，用 Json 格式输出：
+输出格式，用 Json 格式输出：
 
-// {
-//   "startingOverview": "六大领域的整体总览，100字左右。口吻口语化、有亲和力，多用\\"你\\", \\"我看到\\"。总结性发言，放在六大领域的开头。"
-// }
+{
+  "startingOverview": "六大领域的整体总览，100字左右。口吻口语化、有亲和力，多用\\"你\\", \\"我看到\\"。总结性发言，放在六大领域的开头。"
+}
 
-// 注意：你只需要输出上述 Json 对象本身，不需要额外说明文字。`;
-// }
+注意：你只需要输出上述 Json 对象本身，不需要额外说明文字。`;
+}
 
 
