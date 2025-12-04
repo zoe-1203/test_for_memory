@@ -122,84 +122,155 @@ export async function POST(req: Request) {
       description: area.description
     }));
 
-    // 把候选 memory 和上下文放给模型，让它来"决定调用哪个工具"
-    const selection = await client.chat.completions.create({
-      model,
-      temperature: 0,
-      messages: [
-        { role: "system", content: sys },
-        {
-          role: "user",
-          content: [
-            `问题：${question}`,
-            `提问日期：${questionDate || "（未提供）"}`,
-            `额外信息：${additionalInfo || "（无）"}`,
-            `可用的领域（Area）：${JSON.stringify(availableAreas, null, 2)}`,
-            `用户存入的记忆包括：\n${formatMemoriesForTools(memories).map((m, i) => `${i}. ${m}`).join('\n')}`
-          ].join("\n\n")
-        }
-      ],
-      tools: toolDefinitions as any,
-      tool_choice: "auto"
-    });
+    // 多轮对话：处理工具调用
+    const messages: any[] = [
+      { role: "system", content: sys },
+      {
+        role: "user",
+        content: [
+          `问题：${question}`,
+          `提问日期：${questionDate || "（未提供）"}`,
+          `额外信息：${additionalInfo || "（无）"}`,
+          `可用的领域（Area）：${JSON.stringify(availableAreas, null, 2)}`,
+          `用户存入的记忆包括：\n${formatMemoriesForTools(memories).map((m, i) => `${i}. ${m}`).join('\n')}`
+        ].join("\n\n")
+      }
+    ];
 
-    // 打印模型的完整回复
-    console.log('[Memory Selection] 模型回复:', JSON.stringify(selection, null, 2));
-
-    // 处理 tool calls（可能 0~多次）
-    const toolCalls = selection.choices[0]?.message?.tool_calls || [];
-    console.log('[Memory Selection] 调用的工具数量:', toolCalls.length);
-    
     let selectedAreaIds: MemoryAreaId[] = [];
     let selectedMemoryIds: string[] = [];
+    let maxIterations = 10; // 防止无限循环
+    let iteration = 0;
 
-    for (const call of toolCalls) {
-      if (!('function' in call)) continue;
-      const name = call.function?.name;
-      const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+    while (iteration < maxIterations) {
+      iteration++;
+      console.log(`[Memory Selection] 第 ${iteration} 轮对话`);
 
-      console.log(`[Memory Selection] 工具调用: ${name}`);
-      console.log(`[Memory Selection] 工具参数:`, JSON.stringify(args, null, 2));
+      // 调用模型
+      const selection = await client.chat.completions.create({
+        model,
+        temperature: 0,
+        messages,
+        tools: toolDefinitions as any,
+        tool_choice: "auto"
+      });
 
-      if (name === "select_relevant_area") {
-        const areaIds = Array.isArray(args.areaIds) ? args.areaIds : [args.areaId].filter(Boolean);
-        selectedAreaIds = areaIds as MemoryAreaId[];
-        console.log(`[Memory Selection] 选中的领域: ${selectedAreaIds.join(', ')}`);
+      // 打印模型的完整回复
+      console.log('[Memory Selection] 模型回复:', JSON.stringify(selection, null, 2));
+
+      // 将模型的回复添加到消息历史
+      const assistantMessage = selection.choices[0]?.message;
+      if (!assistantMessage) break;
+      messages.push(assistantMessage);
+
+      // 处理 tool calls（可能 0~多次）
+      const toolCalls = assistantMessage.tool_calls || [];
+      console.log('[Memory Selection] 调用的工具数量:', toolCalls.length);
+
+      if (toolCalls.length === 0) {
+        // 没有工具调用，结束循环
+        console.log('[Memory Selection] 模型不再调用工具，结束对话');
+        break;
       }
 
-      if (name === "get_memories_by_area") {
-        const areaId = args.areaId as MemoryAreaId;
-        if (!areaId || !selectedAreaIds.includes(areaId)) {
-          console.warn(`[Memory Selection] 警告：领域 ${areaId} 未在选中的领域列表中，跳过`);
-          continue;
+      // 处理每个工具调用
+      const toolResults: any[] = [];
+      for (const call of toolCalls) {
+        if (!('function' in call)) continue;
+        const name = call.function?.name;
+        const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+
+        console.log(`[Memory Selection] 工具调用: ${name}`);
+        console.log(`[Memory Selection] 工具参数:`, JSON.stringify(args, null, 2));
+
+        if (name === "select_relevant_area") {
+          const areaIds = Array.isArray(args.areaIds) ? args.areaIds : [args.areaId].filter(Boolean);
+          selectedAreaIds = areaIds as MemoryAreaId[];
+          console.log(`[Memory Selection] 选中的领域: ${selectedAreaIds.join(', ')}`);
+          
+          // 为每个选中的领域准备 memory 列表信息
+          const areaMemoriesInfo: Record<string, string[]> = {};
+          for (const areaId of selectedAreaIds) {
+            const areaMemories = filterMemoriesByArea(memories, areaId);
+            const areaMemoryTexts = formatMemoriesForTools(areaMemories);
+            areaMemoriesInfo[areaId] = areaMemoryTexts;
+            console.log(`[Memory Selection] 领域 ${areaId} 下的记忆数量: ${areaMemoryTexts.length}`);
+          }
+          
+          // 返回选中的领域ID列表和每个领域的记忆列表
+          toolResults.push({
+            tool_call_id: call.id,
+            role: "tool" as const,
+            name: "select_relevant_area",
+            content: JSON.stringify({ 
+              areaIds: selectedAreaIds,
+              areaMemories: areaMemoriesInfo
+            })
+          });
         }
-        // 获取该领域下的所有 memory
-        const areaMemories = filterMemoriesByArea(memories, areaId);
-        const areaMemoryTexts = formatMemoriesForTools(areaMemories);
-        
-        // 从该领域下的 memory 中选择（返回索引）
-        const indices = selectMemoriesByArea({
-          question: args.question,
-          additionalInfo: args.additionalInfo || "",
-          areaId: areaId,
-          memoryTexts: areaMemoryTexts,
-          limit: args.limit || 3
-        });
-        
-        // 将索引转换为 memory IDs
-        const ids = indices.map(idx => areaMemories[idx].id);
-        console.log(`[Memory Selection] ${name} 返回的 Memory IDs (领域: ${areaId}):`, ids);
-        selectedMemoryIds = Array.from(new Set([...selectedMemoryIds, ...ids]));
+
+        if (name === "get_memories_by_area") {
+          const areaId = args.areaId as MemoryAreaId;
+          if (!areaId) {
+            console.warn(`[Memory Selection] 警告：areaId 为空，跳过`);
+            toolResults.push({
+              tool_call_id: call.id,
+              role: "tool" as const,
+              name: "get_memories_by_area",
+              content: JSON.stringify({ error: "areaId 不能为空", indices: [] })
+            });
+            continue;
+          }
+
+          // 获取该领域下的所有 memory
+          const areaMemories = filterMemoriesByArea(memories, areaId);
+          const areaMemoryTexts = formatMemoriesForTools(areaMemories);
+          
+          // 从该领域下的 memory 中选择（返回索引）
+          const indices = selectMemoriesByArea({
+            question: args.question || question,
+            additionalInfo: args.additionalInfo || additionalInfo || "",
+            areaId: areaId,
+            memoryTexts: areaMemoryTexts,
+            limit: args.limit || 3
+          });
+          
+          // 将索引转换为 memory IDs
+          const ids = indices.map(idx => areaMemories[idx].id);
+          console.log(`[Memory Selection] ${name} 返回的 Memory IDs (领域: ${areaId}):`, ids);
+          selectedMemoryIds = Array.from(new Set([...selectedMemoryIds, ...ids]));
+
+          // 返回选中的索引列表
+          toolResults.push({
+            tool_call_id: call.id,
+            role: "tool" as const,
+            name: "get_memories_by_area",
+            content: JSON.stringify({ indices, areaId, memoryIds: ids })
+          });
+        }
+
+        if (name === "get_latest_memory") {
+          // 从所有 memory 中按时间选择最近的
+          const ids = selectLatestMemories({
+            memories,
+            limit: args.limit || 2
+          });
+          console.log(`[Memory Selection] ${name} 返回的 Memory IDs:`, ids);
+          selectedMemoryIds = Array.from(new Set([...selectedMemoryIds, ...ids]));
+
+          // 返回选中的 memory IDs
+          toolResults.push({
+            tool_call_id: call.id,
+            role: "tool" as const,
+            name: "get_latest_memory",
+            content: JSON.stringify({ memoryIds: ids })
+          });
+        }
       }
 
-      if (name === "get_latest_memory") {
-        // 从所有 memory 中按时间选择最近的
-        const ids = selectLatestMemories({
-          memories,
-          limit: args.limit || 2
-        });
-        console.log(`[Memory Selection] ${name} 返回的 Memory IDs:`, ids);
-        selectedMemoryIds = Array.from(new Set([...selectedMemoryIds, ...ids]));
+      // 将工具调用的结果添加到消息历史
+      if (toolResults.length > 0) {
+        messages.push(...toolResults);
       }
     }
 
@@ -227,7 +298,8 @@ export async function POST(req: Request) {
       additionalInfo: additionalInfo || "",
       memoryText,
       cardInfo: card.cardInfo,
-      questionDate: questionDate || "（未提供）"
+      questionDate: questionDate || "（未提供）",
+      cardCount: 1
     });
 
     const interpretation = await client.chat.completions.create({

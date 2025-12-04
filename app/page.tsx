@@ -9,6 +9,13 @@ export default function Home() {
   const [questionDate, setQuestionDate] = useState<string>('');
   const [additionalInfo, setAdditionalInfo] = useState('');
 
+  // 三张牌模式的独立输入
+  const [multiQuestion, setMultiQuestion] = useState('');
+  const [multiAdditionalInfo, setMultiAdditionalInfo] = useState('');
+  const [multiMemoryText, setMultiMemoryText] = useState('');
+  const [multiResultText, setMultiResultText] = useState<string>('');
+  const [multiCards, setMultiCards] = useState<{ id: string; name: string; reversed: boolean }[]>([]);
+
   const [memoryDate, setMemoryDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [memoryArea, setMemoryArea] = useState<MemoryAreaId>('love_and_relationships');
   const [memoryRelatedPeople, setMemoryRelatedPeople] = useState<string>('');
@@ -17,6 +24,7 @@ export default function Home() {
   const STORAGE_KEY = 'tools-mvp-memories';
 
   const [loading, setLoading] = useState(false);
+  const [multiLoading, setMultiLoading] = useState(false);
   const [selectedMemories, setSelectedMemories] = useState<MemoryItem[]>([]);
   const [resultText, setResultText] = useState<string>('');
   const memoryCount = useMemo(() => memories.length, [memories]);
@@ -104,6 +112,44 @@ export default function Home() {
     }
   };
 
+  // 三张牌版本：手动输入 Memory 文本
+  const onDrawThreeCards = async () => {
+    if (!multiQuestion.trim()) {
+      alert('请先在三张牌区域输入问题～');
+      return;
+    }
+    setMultiLoading(true);
+    setMultiResultText('');
+    setMultiCards([]);
+    try {
+      const res = await fetch('/api/chat-three-cards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          question: multiQuestion,
+          questionDate,
+          additionalInfo: multiAdditionalInfo,
+          memoryText: multiMemoryText
+        })
+      });
+      const data = await res.json();
+      console.log('[DEBUG] /api/chat-three-cards response', data);
+
+      if (!data.ok) {
+        alert('服务失败：' + data.error);
+        return;
+      }
+
+      setMultiCards(data.cards || []);
+      setMultiResultText(data.interpretation || '');
+    } catch (err: any) {
+      alert('请求失败：' + (err?.message || 'unknown'));
+    } finally {
+      setMultiLoading(false);
+    }
+  };
+
   return (
     <main style={{ maxWidth: 900, margin: '0 auto', padding: 24, fontFamily: 'ui-sans-serif, system-ui' }}>
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>Tarot Tools MVP</h1>
@@ -170,6 +216,89 @@ export default function Home() {
         >
           {loading ? '处理中…' : '🃏 抽牌并解读'}
         </button>
+      </section>
+
+      {/* 三张牌实验区 */}
+      <section style={{ marginBottom: 32, padding: 16, borderRadius: 12, border: '1px solid #eee', background: '#fafafa' }}>
+        <h2 style={{ fontSize: 20, marginBottom: 8 }}>三张牌解读（手动输入 Memory）</h2>
+        <p style={{ color: '#777', marginBottom: 12, fontSize: 13 }}>
+          这里不使用下方的 Memory 列表，而是直接用你在这里键入的 Memory 文本。
+        </p>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>问题：</label>
+          <textarea
+            value={multiQuestion}
+            onChange={(e) => setMultiQuestion(e.target.value)}
+            placeholder="例如：我接下来三个月的感情发展会怎样？"
+            rows={3}
+            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>附加信息（可选）：</label>
+          <textarea
+            value={multiAdditionalInfo}
+            onChange={(e) => setMultiAdditionalInfo(e.target.value)}
+            placeholder="例如：我们最近的相处状况、你目前的状态等"
+            rows={2}
+            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontWeight: 600, marginBottom: 8 }}>Memory 文本（本次解读要参考的记忆）：</label>
+          <textarea
+            value={multiMemoryText}
+            onChange={(e) => setMultiMemoryText(e.target.value)}
+            placeholder="在这里自由描述你想让塔罗参考的过去经历、人物关系等。"
+            rows={4}
+            style={{ width: '100%', padding: 10, borderRadius: 8, border: '1px solid #ddd' }}
+          />
+        </div>
+
+        <button
+          onClick={onDrawThreeCards}
+          disabled={multiLoading}
+          style={{
+            padding: '10px 16px',
+            fontWeight: 600,
+            borderRadius: 10,
+            border: '1px solid #4a148c',
+            background: multiLoading ? '#b39ddb' : '#4a148c',
+            color: '#fff',
+            cursor: multiLoading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          {multiLoading ? '处理中…' : '🔮 抽三张牌并解读'}
+        </button>
+
+        {/* 三张牌展示 */}
+        {multiCards.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <h3 style={{ fontSize: 16, marginBottom: 8 }}>本次抽到的牌</h3>
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              {multiCards.map((c, idx) => (
+                <li key={c.id + idx} style={{ fontSize: 14, marginBottom: 4 }}>
+                  第{idx + 1}张：{c.name}（{c.reversed ? '逆位' : '正位'}）
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 三张牌解读结果 */}
+        <div style={{ marginTop: 16 }}>
+          <h3 style={{ fontSize: 16, marginBottom: 8 }}>三张牌解读结果</h3>
+          {multiResultText ? (
+            <div style={{ whiteSpace: 'pre-wrap', border: '1px solid #eee', borderRadius: 8, padding: 12, background: '#fff' }}>
+              {multiResultText}
+            </div>
+          ) : (
+            <p style={{ color: '#777' }}>（点击上方按钮后，这里会显示三张牌的解读）</p>
+          )}
+        </div>
       </section>
 
       {/* Memory 面板 */}

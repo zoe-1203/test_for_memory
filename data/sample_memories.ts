@@ -1,7 +1,7 @@
 import { type MemoryItem, type MemoryAreaId } from "@/lib/types";
 
 /**
- * 示例 Memory 数据（20条）
+ * 示例 Memory 数据（30条）
  */
 export const sampleMemories: MemoryItem[] = [
   {
@@ -143,6 +143,76 @@ export const sampleMemories: MemoryItem[] = [
     area: "spirituality_and_meaning" as MemoryAreaId,
     relatedPeople: [],
     content: "参加了塔罗牌学习小组，认识了很多志同道合的朋友"
+  },
+  {
+    id: "21",
+    date: "2025-11-25",
+    area: "love_and_relationships" as MemoryAreaId,
+    relatedPeople: ["小明"],
+    content: "我们决定一起去看心理医生，想要改善沟通方式，让关系更健康"
+  },
+  {
+    id: "22",
+    date: "2025-11-28",
+    area: "work_and_career" as MemoryAreaId,
+    relatedPeople: ["主管"],
+    content: "收到了一个不错的工作机会，薪资和前景都比现在好，正在考虑中"
+  },
+  {
+    id: "23",
+    date: "2025-12-01",
+    area: "family_and_home" as MemoryAreaId,
+    relatedPeople: ["妈妈", "爸爸"],
+    content: "和父母视频通话，他们终于理解了我的选择，不再强迫我回老家"
+  },
+  {
+    id: "24",
+    date: "2025-12-05",
+    area: "self_growth" as MemoryAreaId,
+    relatedPeople: [],
+    content: "开始写日记记录每天的情绪变化，发现自己在压力大的时候容易焦虑"
+  },
+  {
+    id: "25",
+    date: "2025-12-08",
+    area: "health_and_wellbeing" as MemoryAreaId,
+    relatedPeople: [],
+    content: "最近工作压力导致胃痛，医生建议我调整作息和饮食习惯"
+  },
+  {
+    id: "26",
+    date: "2025-12-10",
+    area: "life_events" as MemoryAreaId,
+    relatedPeople: [],
+    content: "决定接受新工作的offer，下个月就要搬家到新城市，既兴奋又紧张"
+  },
+  {
+    id: "27",
+    date: "2025-12-12",
+    area: "finance_and_security" as MemoryAreaId,
+    relatedPeople: [],
+    content: "新工作的薪资更高，但需要重新租房，算了一下收支，还是能存下钱的"
+  },
+  {
+    id: "28",
+    date: "2025-12-15",
+    area: "goals_and_motivation" as MemoryAreaId,
+    relatedPeople: [],
+    content: "制定了明年的三个主要目标：提升专业技能、改善亲密关系、保持身心健康"
+  },
+  {
+    id: "29",
+    date: "2025-12-18",
+    area: "social_and_friendship" as MemoryAreaId,
+    relatedPeople: ["小红", "小绿", "小黄"],
+    content: "朋友们为我举办了送别聚会，很感动，约定以后要经常保持联系"
+  },
+  {
+    id: "30",
+    date: "2025-12-20",
+    area: "spirituality_and_meaning" as MemoryAreaId,
+    relatedPeople: [],
+    content: "通过塔罗牌和冥想，我越来越清楚自己想要什么，内心变得更平静了"
   }
 ];
 
