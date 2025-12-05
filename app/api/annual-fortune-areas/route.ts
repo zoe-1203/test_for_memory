@@ -109,7 +109,7 @@ export async function POST(req: Request) {
 
       // 根据身份类型动态调整「事业·学业」在 Prompt 中的文案：
       // - 学生（middle_high_school / college_above）：使用「学业」
-      // - 职场人/自由状态（worker / freelance）：使用「事业」
+      // - 职场人/自由职业（worker / freelance）：使用「事业」
       // - 其他情况：保持原有 areaName（通常是「事业·学业」）
       let areaForPrompt = card.areaName;
       if (card.areaId === "career") {

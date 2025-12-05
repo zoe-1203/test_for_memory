@@ -128,7 +128,7 @@ export default function AnnualFortunePage() {
   const [careerStatus, setCareerStatus] = useState<'middle_high_school' | 'college_above' | 'worker' | 'freelance' | ''>('');
   const [gender, setGender] = useState<'female' | 'male' | 'other' | ''>('');
   const [loveStatus, setLoveStatus] = useState<
-    'single_notLooking' | 'single_looking' | 'in_relationship' | 'married_or_stable' | ''
+    'single' | 'in_relationship' | 'ambiguous' | ''
   >('');
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(false);
@@ -235,18 +235,17 @@ export default function AnnualFortunePage() {
         middle_high_school: '初高中生',
         college_above: '大学及以上',
         worker: '职场人',
-        freelance: '自由状态'
+        freelance: '自由职业'
       };
       const genderLabelMap: Record<string, string> = {
         female: '女',
         male: '男',
-        other: '其他 / 不方便说'
+        other: '不方便告诉'
       };
       const loveStatusLabelMap: Record<string, string> = {
-        single_notLooking: '单身 - 暂时不想谈',
-        single_looking: '单身 - 想遇见合适的人',
-        in_relationship: '恋爱中',
-        married_or_stable: '已婚 / 稳定关系'
+        single: '单身',
+        in_relationship: '有对象',
+        ambiguous: '暧昧中'
       };
 
       const careerStatusLabel = careerStatus ? (careerStatusLabelMap[careerStatus] || careerStatus) : '';
@@ -320,18 +319,17 @@ export default function AnnualFortunePage() {
         middle_high_school: '初高中生',
         college_above: '大学及以上',
         worker: '职场人',
-        freelance: '自由状态'
+        freelance: '自由职业'
       };
       const genderLabelMap: Record<string, string> = {
         female: '女',
         male: '男',
-        other: '其他 / 不方便说'
+        other: '不方便告诉'
       };
       const loveStatusLabelMap: Record<string, string> = {
-        single_notLooking: '单身 - 暂时不想谈',
-        single_looking: '单身 - 想遇见合适的人',
-        in_relationship: '恋爱中',
-        married_or_stable: '已婚 / 稳定关系'
+        single: '单身',
+        in_relationship: '有对象',
+        ambiguous: '暧昧中'
       };
 
       const careerStatusLabel = careerStatus ? (careerStatusLabelMap[careerStatus] || careerStatus) : '';
@@ -392,7 +390,7 @@ export default function AnnualFortunePage() {
           middle_high_school: '初高中生',
           college_above: '大学及以上',
           worker: '职场人',
-          freelance: '自由状态'
+          freelance: '自由职业'
         };
         lines.push(`- 身份类型：${map[careerStatus] || careerStatus}`);
       }
@@ -400,16 +398,15 @@ export default function AnnualFortunePage() {
         const map: Record<string, string> = {
           female: '女',
           male: '男',
-          other: '其他'
+          other: '保密'
         };
         lines.push(`- 性别：${map[gender] || gender}`);
       }
       if (loveStatus) {
         const map: Record<string, string> = {
-          single_notLooking: '单身 - 暂时不想谈',
-          single_looking: '单身 - 想遇见合适的人',
-          in_relationship: '恋爱中',
-          married_or_stable: '已婚 / 稳定关系'
+          single: '单身',
+          in_relationship: '有对象',
+          ambiguous: '暧昧中'
         };
         lines.push(`- 感情状态：${map[loveStatus] || loveStatus}`);
       }
@@ -505,7 +502,7 @@ export default function AnnualFortunePage() {
           middle_high_school: '初高中生',
           college_above: '大学及以上',
           worker: '职场人',
-          freelance: '自由状态'
+          freelance: '自由职业'
         };
         lines.push(`- 身份类型：${map[careerStatus] || careerStatus}`);
       }
@@ -513,16 +510,15 @@ export default function AnnualFortunePage() {
         const map: Record<string, string> = {
           female: '女',
           male: '男',
-          other: '其他'
+          other: '保密'
         };
         lines.push(`- 性别：${map[gender] || gender}`);
       }
       if (loveStatus) {
         const map: Record<string, string> = {
-          single_notLooking: '单身 - 暂时不想谈',
-          single_looking: '单身 - 想遇见合适的人',
-          in_relationship: '恋爱中',
-          married_or_stable: '已婚 / 稳定关系'
+          single: '单身',
+          in_relationship: '有对象',
+          ambiguous: '暧昧中'
         };
         lines.push(`- 感情状态：${map[loveStatus] || loveStatus}`);
       }
@@ -771,18 +767,17 @@ export default function AnnualFortunePage() {
         middle_high_school: '初高中生',
         college_above: '大学及以上',
         worker: '职场人',
-        freelance: '自由状态'
+        freelance: '自由职业'
       };
       const genderLabelMap: Record<string, string> = {
         female: '女',
         male: '男',
-        other: '其他 / 不方便说'
+        other: '不方便告诉'
       };
       const loveStatusLabelMap: Record<string, string> = {
-        single_notLooking: '单身 - 暂时不想谈',
-        single_looking: '单身 - 想遇见合适的人',
-        in_relationship: '恋爱中',
-        married_or_stable: '已婚 / 稳定关系'
+        single: '单身',
+        in_relationship: '有对象',
+        ambiguous: '暧昧中'
       };
 
       const careerStatusLabel = careerStatus ? (careerStatusLabelMap[careerStatus] || careerStatus) : '';
@@ -868,18 +863,17 @@ export default function AnnualFortunePage() {
         middle_high_school: '初高中生',
         college_above: '大学及以上',
         worker: '职场人',
-        freelance: '自由状态'
+        freelance: '自由职业'
       };
       const genderLabelMap: Record<string, string> = {
         female: '女',
         male: '男',
-        other: '其他 / 不方便说'
+        other: '不方便告诉'
       };
       const loveStatusLabelMap: Record<string, string> = {
-        single_notLooking: '单身 - 暂时不想谈',
-        single_looking: '单身 - 想遇见合适的人',
-        in_relationship: '恋爱中',
-        married_or_stable: '已婚 / 稳定关系'
+        single: '单身',
+        in_relationship: '有对象',
+        ambiguous: '暧昧中'
       };
 
       const careerStatusLabel = careerStatus ? (careerStatusLabelMap[careerStatus] || careerStatus) : '';
@@ -1350,7 +1344,7 @@ export default function AnnualFortunePage() {
               <option value="middle_high_school">初高中生</option>
               <option value="college_above">大学及以上</option>
               <option value="worker">职场人</option>
-              <option value="freelance">自由状态</option>
+              <option value="freelance">自由职业</option>
             </select>
           </div>
 
@@ -1370,7 +1364,7 @@ export default function AnnualFortunePage() {
               <option value="">请选择</option>
               <option value="female">女</option>
               <option value="male">男</option>
-              <option value="other">其他 / 不方便说</option>
+              <option value="other">保密</option>
             </select>
           </div>
 
@@ -1388,10 +1382,9 @@ export default function AnnualFortunePage() {
               }}
             >
               <option value="">请选择</option>
-              <option value="single_notLooking">单身 - 暂时不想谈</option>
-              <option value="single_looking">单身 - 想遇见合适的人</option>
-              <option value="in_relationship">恋爱中</option>
-              <option value="married_or_stable">已婚 / 稳定关系</option>
+              <option value="single">单身</option>
+              <option value="in_relationship">有对象</option>
+              <option value="ambiguous">暧昧中</option>
             </select>
           </div>
         </div>
