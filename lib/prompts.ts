@@ -196,18 +196,34 @@ export function getAnnualFortunePrompt(args: {
   const genderDisplay = genderLabel || gender || '（未提供）';
   const loveDisplay = loveStatusLabel || loveStatus || '（未提供）';
 
-  // 条件变量：仅在单身或暧昧中时添加的特殊指导
-  const isSingleOrAmbiguous = loveStatus === 'single' || loveStatus === 'ambiguous' || 
-                              loveStatusLabel?.includes('单身') || loveStatusLabel?.includes('暧昧');
+  // 条件变量：判断是否为单身或暧昧状态
+  const isSingle = loveStatus === 'single' || loveStatusLabel?.includes('单身');
+  const isAmbiguous = loveStatus === 'ambiguous' || loveStatusLabel?.includes('暧昧');
   
-  const singleOrAmbiguousGuidance = isSingleOrAmbiguous ? `
+  // 单身用户的感情状态变化提示
+  const singleStatusChangeNote = isSingle ? `
 因为用户是在${timeInfo}的时候，抽2026年的牌，所以如果月份到了下半年，用户的感情状态你需要结合牌来看是否会发生变化。
+` : '';
 
-## 关于单身和暧昧中的用户怎么解读
+  // 单身用户的解读指导
+  const singleGuidance = isSingle ? `
+## 关于单身用户怎么解读
 - 如果抽到了特别暗示情感关系的牌，才进行特殊的解读。
 - 单身你需要结合牌意，来查看是否这个月会遇到用户心动的人，或者可能对用户心动的人。单身不意味着一直单身。
-- 暧昧中的用户，你需要结合牌意，来查看是否这个月会和用户心动的人有更进一步的发展，用户只是在抽牌时是暧昧，不意味着下一年的各个月份都一直暧昧。
 - 比如"你抽牌时是单身，但结合牌意，到了 ${monthNumber}月，感情有可能出现一些变化。"
+` : '';
+
+  // 暧昧中用户的感情状态变化提示
+  const ambiguousStatusChangeNote = isAmbiguous ? `
+因为用户是在${timeInfo}的时候，抽2026年的牌，所以如果月份到了下半年，用户的感情状态你需要结合牌来看是否会发生变化。
+` : '';
+
+  // 暧昧中用户的解读指导
+  const ambiguousGuidance = isAmbiguous ? `
+## 关于暧昧中的用户怎么解读
+- 如果抽到了特别暗示情感关系的牌，才进行特殊的解读。
+- 暧昧中的用户，你需要结合牌意，来查看是否这个月会和用户心动的人有更进一步的发展，用户只是在抽牌时是暧昧，不意味着下一年的各个月份都一直暧昧。
+- 比如"你抽牌时是暧昧中，但结合牌意，到了 ${monthNumber}月，你们的关系可能出现一些变化。"
 ` : '';
 
   return `你是我的塔罗师，我已经抽取了12张牌分别代表我的2026年12个月运势。
@@ -242,8 +258,8 @@ ${currentCardDetail}
 ### 我的背景资料如下，如果可以衔接牌意可自然地穿插使用：
 - 性别：${genderDisplay}
 - 感情状态：目前暂时是 ${loveDisplay}
-- 身份类型：${careerDisplay}
-${singleOrAmbiguousGuidance}
+${singleStatusChangeNote}${ambiguousStatusChangeNote}- 身份类型：${careerDisplay}
+${singleGuidance}${ambiguousGuidance}
 ## 现在的时间是：
 ${timeInfo || '（未提供）'}
 
