@@ -232,8 +232,8 @@ export default function AnnualFortunePage() {
 
     try {
       const careerStatusLabelMap: Record<string, string> = {
-        middle_high_school: '初高中生',
-        college_above: '大学及以上',
+        middle_high_school: '初中生或者高中生',
+        college_above: '高校在读生',
         worker: '职场人',
         freelance: '自由职业'
       };
@@ -316,8 +316,8 @@ export default function AnnualFortunePage() {
 
     try {
       const careerStatusLabelMap: Record<string, string> = {
-        middle_high_school: '初高中生',
-        college_above: '大学及以上',
+        middle_high_school: '初中生或者高中生',
+        college_above: '高校在读生',
         worker: '职场人',
         freelance: '自由职业'
       };
@@ -387,8 +387,8 @@ export default function AnnualFortunePage() {
       if (nickName) lines.push(`- 昵称：${nickName}`);
       if (careerStatus) {
         const map: Record<string, string> = {
-          middle_high_school: '初高中生',
-          college_above: '大学及以上',
+          middle_high_school: '初中生或者高中生',
+          college_above: '高校在读生',
           worker: '职场人',
           freelance: '自由职业'
         };
@@ -1342,7 +1342,7 @@ export default function AnnualFortunePage() {
             >
               <option value="">请选择</option>
               <option value="middle_high_school">初高中生</option>
-              <option value="college_above">大学及以上</option>
+              <option value="college_above">高校在读生</option>
               <option value="worker">职场人</option>
               <option value="freelance">自由职业</option>
             </select>
