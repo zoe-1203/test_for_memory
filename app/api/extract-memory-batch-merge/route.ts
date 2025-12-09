@@ -70,7 +70,17 @@ function parseStage1Output(text: string): string {
 }
 
 // 读取 Stage 1 记忆文件
-function readStage1Memories(): Array<{ round: number; content: string; filePath: string }> {
+function readStage1Memories(
+  provided?: Array<{ round?: number; summary: string }>
+): Array<{ round: number; content: string; filePath: string }> {
+  if (provided && provided.length > 0) {
+    return provided.map((item, idx) => ({
+      round: item.round ?? idx + 1,
+      content: item.summary,
+      filePath: ""
+    }));
+  }
+
   const stage1Dir = path.join(process.cwd(), "data", "extracted_memories_stage1_only");
   
   if (!fs.existsSync(stage1Dir)) {
@@ -136,14 +146,17 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai" } = body as { provider?: "openai" | "deepseek" };
+    const { provider = "openai", stage1Summaries } = body as {
+      provider?: "openai" | "deepseek";
+      stage1Summaries?: Array<{ round?: number; summary: string }>;
+    };
     
     console.log(`[Batch Merge Memory] 使用模型提供方: ${provider}`);
 
     // 1. 读取所有 Stage 1 记忆文件
     console.log(`[Batch Merge Memory] 读取 Stage 1 记忆文件...`);
-    const stage1Memories = readStage1Memories();
-    console.log(`[Batch Merge Memory] 找到 ${stage1Memories.length} 个 Stage 1 记忆文件`);
+    const stage1Memories = readStage1Memories(stage1Summaries);
+    console.log(`[Batch Merge Memory] 找到 ${stage1Memories.length} 个 Stage 1 记忆`);
 
     if (stage1Memories.length === 0) {
       return NextResponse.json({ 

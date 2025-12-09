@@ -123,7 +123,7 @@ function drawTwelveCards(): Card[] {
 }
 
 export default function AnnualFortunePage() {
-  const [provider, setProvider] = useState<'openai' | 'deepseek'>('openai');
+  const [provider, setProvider] = useState<'openai' | 'deepseek'>('deepseek');
   const [nickName, setNickName] = useState('');
   const [careerStatus, setCareerStatus] = useState<'middle_high_school' | 'college_above' | 'worker' | 'freelance' | ''>('');
   const [gender, setGender] = useState<'female' | 'male' | 'other' | ''>('');
@@ -1298,8 +1298,8 @@ export default function AnnualFortunePage() {
             onChange={(e) => setProvider(e.target.value as 'openai' | 'deepseek')}
             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd' }}
           >
-            <option value="openai">OpenAI</option>
             <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
           </select>
         </div>
 

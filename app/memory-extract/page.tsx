@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import React, { useState } from 'react';
 
 interface ExtractResult {
   round: number;
@@ -80,7 +80,14 @@ export default function MemoryExtractPage() {
   const [currentStageRound, setCurrentStageRound] = useState(0);
   const [currentStage1OnlyRound, setCurrentStage1OnlyRound] = useState(0);
   const [currentBatchMergeRound, setCurrentBatchMergeRound] = useState(0);
-  const [provider, setProvider] = useState<'openai' | 'deepseek'>('openai');
+  const [provider, setProvider] = useState<'openai' | 'deepseek'>('deepseek');
+  const [uploadedText, setUploadedText] = useState('');
+  const [uploadFileName, setUploadFileName] = useState('');
+  const [roundLimit, setRoundLimit] = useState(20);
+  const [stage1AbortController, setStage1AbortController] = useState<AbortController | null>(null);
+  const [batchAbortController, setBatchAbortController] = useState<AbortController | null>(null);
+  const [stage1Status, setStage1Status] = useState('');
+  const [batchStatus, setBatchStatus] = useState('');
   
   // 三张牌解读相关状态
   const [questionThreeCards, setQuestionThreeCards] = useState('');
@@ -272,12 +279,325 @@ export default function MemoryExtractPage() {
     }
   };
 
+  const readFileText = (file: File) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string) || '');
+      reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+      reader.readAsText(file, 'utf-8');
+    });
+  };
+
+  const handleUploadFile = async (file: File) => {
+    try {
+      const text = await readFileText(file);
+      setUploadedText(text);
+      setUploadFileName(file.name);
+      setStage1OnlyResults([]);
+      setBatchMergeResults([]);
+      setStage1Status(`已载入文件：${file.name}，${text.length} 字符`);
+      setBatchStatus('');
+    } catch (err: any) {
+      alert('读取文件失败：' + (err?.message || 'unknown'));
+    }
+  };
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await handleUploadFile(file);
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await handleUploadFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  const handleStage1FromUpload = async () => {
+    if (!uploadedText.trim()) {
+      alert('请先选择或拖入 txt 文件');
+      return;
+    }
+
+    const controller = new AbortController();
+    setStage1AbortController(controller);
+    setLoadingStage1Only(true);
+    setStage1OnlyResults([]);
+    setCurrentStage1OnlyRound(0);
+    setStage1Status('处理中...');
+
+    try {
+      const res = await fetch('/api/extract-memory-stage1-only', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, fileContent: uploadedText, roundLimit }),
+        signal: controller.signal
+      });
+
+      const data = await res.json();
+
+      if (!data.ok) {
+        alert('处理失败：' + data.error);
+        setStage1Status('处理失败');
+        return;
+      }
+
+      setStage1OnlyResults(data.results || []);
+      setCurrentStage1OnlyRound(data.results?.length || 0);
+      setStage1Status(`完成 ${data.results?.length || 0} 轮`);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setStage1Status('已中止');
+      } else {
+        alert('请求失败：' + (err?.message || 'unknown'));
+        setStage1Status('处理失败');
+      }
+    } finally {
+      setLoadingStage1Only(false);
+      setStage1AbortController(null);
+    }
+  };
+
+  const stopStage1 = () => {
+    if (stage1AbortController) {
+      stage1AbortController.abort();
+    }
+  };
+
+  const handleBatchMergeFromStage1 = async () => {
+    if (stage1OnlyResults.length === 0) {
+      alert('请先完成 Stage 1 提取');
+      return;
+    }
+
+    const controller = new AbortController();
+    setBatchAbortController(controller);
+    setLoadingBatchMerge(true);
+    setBatchMergeResults([]);
+    setCurrentBatchMergeRound(0);
+    setBatchStatus('处理中...');
+
+    try {
+      const stage1Summaries = stage1OnlyResults.map((item) => ({
+        round: item.round,
+        summary: item.stage1Summary
+      }));
+
+      const res = await fetch('/api/extract-memory-batch-merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, stage1Summaries }),
+        signal: controller.signal
+      });
+
+      const data = await res.json();
+
+      if (!data.ok) {
+        alert('处理失败：' + data.error);
+        setBatchStatus('处理失败');
+        return;
+      }
+
+      setBatchMergeResults(data.results || []);
+      setCurrentBatchMergeRound(data.results?.length || 0);
+      setBatchStatus(`完成 ${data.results?.length || 0} 批`);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setBatchStatus('已中止');
+      } else {
+        alert('请求失败：' + (err?.message || 'unknown'));
+        setBatchStatus('处理失败');
+      }
+    } finally {
+      setLoadingBatchMerge(false);
+      setBatchAbortController(null);
+    }
+  };
+
+  const stopBatch = () => {
+    if (batchAbortController) {
+      batchAbortController.abort();
+    }
+  };
+
+  const handleDownloadResults = () => {
+    if (stage1OnlyResults.length === 0 && batchMergeResults.length === 0) {
+      alert('暂无可下载的结果');
+      return;
+    }
+
+    const parts: string[] = [];
+    if (stage1OnlyResults.length > 0) {
+      parts.push(`【Stage 1 提取】共 ${stage1OnlyResults.length} 轮`);
+      stage1OnlyResults.forEach((item) => {
+        parts.push(`--- 第 ${item.round} 轮 ---\n${item.stage1Summary || ''}`);
+      });
+    }
+
+    if (batchMergeResults.length > 0) {
+      parts.push(`\n【批量合并记忆】共 ${batchMergeResults.length} 批`);
+      batchMergeResults.forEach((item) => {
+        parts.push(`--- 第 ${item.batch} 批（${item.date}，${item.memoryCount} 条） ---\n${item.globalMemory || ''}`);
+      });
+    }
+
+    const blob = new Blob([parts.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'memory_extract_results.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24, fontFamily: 'ui-sans-serif, system-ui' }}>
       <h1 style={{ fontSize: 28, marginBottom: 8 }}>记忆提取流程</h1>
       <p style={{ color: '#555', marginBottom: 24 }}>
         从对话文件中提取并更新事实性记忆和占卜概览
       </p>
+
+      {/* 上传与 Stage1 控制 */}
+      <section style={{ marginBottom: 20, padding: 16, border: '1px solid #eee', borderRadius: 12, background: '#fafafa' }}>
+        <h2 style={{ fontSize: 20, marginBottom: 12 }}>上传对话 txt & 仅提取 Stage 1</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <label style={{ fontWeight: 600, display: 'block', marginBottom: 8 }}>选择或拖入 txt 文件：</label>
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              style={{
+                border: '2px dashed #bbb',
+                borderRadius: 10,
+                padding: 14,
+                background: '#fff',
+                cursor: 'pointer'
+              }}
+              onClick={() => document.getElementById('txt-file-input')?.click()}
+            >
+              <input
+                id="txt-file-input"
+                type="file"
+                accept=".txt"
+                style={{ display: 'none' }}
+                onChange={handleFileInputChange}
+              />
+              <div style={{ color: '#666', fontSize: 14 }}>
+                {uploadFileName
+                  ? `已选择：${uploadFileName}（${uploadedText.length} 字符）`
+                  : '拖入或点击选择 .txt 文件'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ fontWeight: 600 }}>调用轮数（默认 20）：</label>
+            <input
+              type="number"
+              min={1}
+              value={roundLimit}
+              onChange={(e) => setRoundLimit(Number(e.target.value) || 1)}
+              style={{ width: '120px', padding: 8, borderRadius: 8, border: '1px solid #ddd' }}
+            />
+            <div style={{ display: 'flex', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
+              <button
+                onClick={handleStage1FromUpload}
+                disabled={loadingStage1Only}
+                style={{
+                  padding: '10px 16px',
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  border: '1px solid #9c27b0',
+                  background: loadingStage1Only ? '#ce93d8' : '#9c27b0',
+                  color: '#fff',
+                  cursor: loadingStage1Only ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {loadingStage1Only ? '处理中…' : '🚀 开始仅提取 Stage 1'}
+              </button>
+              <button
+                onClick={stopStage1}
+                disabled={!loadingStage1Only}
+                style={{
+                  padding: '10px 16px',
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  border: '1px solid #b71c1c',
+                  background: loadingStage1Only ? '#e57373' : '#f5f5f5',
+                  color: loadingStage1Only ? '#fff' : '#b71c1c',
+                  cursor: loadingStage1Only ? 'pointer' : 'not-allowed'
+                }}
+              >
+                ⏹ 中止
+              </button>
+            </div>
+            <div style={{ color: '#555', fontSize: 13 }}>
+              {stage1Status || '准备就绪'}
+            </div>
+          </div>
+        </div>
+
+        {(stage1OnlyResults.length > 0 || stage1Status === '已中止') && (
+          <div style={{ marginTop: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleBatchMergeFromStage1}
+              disabled={loadingBatchMerge}
+              style={{
+                padding: '10px 16px',
+                fontWeight: 600,
+                borderRadius: 10,
+                border: '1px solid #ff9800',
+                background: loadingBatchMerge ? '#ffb74d' : '#ff9800',
+                color: '#fff',
+                cursor: loadingBatchMerge ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {loadingBatchMerge ? '处理中…' : '➡️ 下一步：批量合并记忆'}
+            </button>
+            <button
+              onClick={stopBatch}
+              disabled={!loadingBatchMerge}
+              style={{
+                padding: '10px 16px',
+                fontWeight: 600,
+                borderRadius: 10,
+                border: '1px solid #b71c1c',
+                background: loadingBatchMerge ? '#e57373' : '#f5f5f5',
+                color: loadingBatchMerge ? '#fff' : '#b71c1c',
+                cursor: loadingBatchMerge ? 'pointer' : 'not-allowed'
+              }}
+            >
+              ⏹ 中止合并
+            </button>
+            <span style={{ color: '#555', fontSize: 13 }}>{batchStatus}</span>
+          </div>
+        )}
+
+        {(stage1OnlyResults.length > 0 || batchMergeResults.length > 0) && (
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={handleDownloadResults}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: '1px solid #333',
+                background: '#333',
+                color: '#fff',
+                fontWeight: 600
+              }}
+            >
+              💾 下载当前结果
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* Provider 选择 */}
       <section style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -287,8 +607,8 @@ export default function MemoryExtractPage() {
           onChange={(e) => setProvider(e.target.value as 'openai' | 'deepseek')}
           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ddd' }}
         >
-          <option value="openai">OpenAI</option>
           <option value="deepseek">DeepSeek</option>
+          <option value="openai">OpenAI</option>
         </select>
         <div style={{ display: 'flex', gap: 12 }}>
           <button

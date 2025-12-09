@@ -48,23 +48,21 @@ function replacePlaceholders(
 }
 
 // 解析对话文件，按 === 分割
-function parseDialogueFile(): string[] {
-  const dialoguePath = path.join(
-    process.cwd(),
-    "data",
-    "raw_dialogue",
-    "0B862A48-0A75-4D60-8427-952E9B15B2EC_extracted_timeOrder.txt"
+function parseDialogueFile(contentOverride?: string): string[] {
+  const content = contentOverride ?? fs.readFileSync(
+    path.join(
+      process.cwd(),
+      "data",
+      "raw_dialogue",
+      "0B862A48-0A75-4D60-8427-952E9B15B2EC_extracted_timeOrder.txt"
+    ),
+    "utf-8"
   );
-  
-  const content = fs.readFileSync(dialoguePath, "utf-8");
-  
-  // 按 === 分割，过滤空字符串
-  const sessions = content
+
+  return content
     .split(/^===\s*$/m)
     .map(s => s.trim())
     .filter(s => s.length > 0);
-  
-  return sessions;
 }
 
 // 解析 stage1 输出（提取 facts）
@@ -88,7 +86,11 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai" } = body as { provider?: "openai" | "deepseek" };
+    const { provider = "openai", fileContent, roundLimit } = body as {
+      provider?: "openai" | "deepseek";
+      fileContent?: string;
+      roundLimit?: number;
+    };
     
     console.log(`[Extract Memory Stage1 Only] 使用模型提供方: ${provider}`);
 
@@ -96,7 +98,7 @@ export async function POST(req: Request) {
     const stage1Template = loadPromptTemplate("extract_memory_stage1.yaml");
     
     // 2. 解析对话文件
-    const dialogueSessions = parseDialogueFile();
+    const dialogueSessions = parseDialogueFile(fileContent);
     
     if (dialogueSessions.length === 0) {
       return NextResponse.json({ 
@@ -105,7 +107,11 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    console.log(`[Extract Memory Stage1 Only] 找到 ${dialogueSessions.length} 个对话轮次`);
+    const limitedSessions = typeof roundLimit === "number" && roundLimit > 0
+      ? dialogueSessions.slice(0, roundLimit)
+      : dialogueSessions;
+
+    console.log(`[Extract Memory Stage1 Only] 找到 ${limitedSessions.length} 个对话轮次（原始 ${dialogueSessions.length}）`);
 
     // 3. 初始化客户端
     const client = getClient(provider);
@@ -129,8 +135,8 @@ export async function POST(req: Request) {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
 
-    for (let i = 0; i < dialogueSessions.length; i++) {
-      const thisSessionRaw = dialogueSessions[i];
+    for (let i = 0; i < limitedSessions.length; i++) {
+      const thisSessionRaw = limitedSessions[i];
       const round = i + 1;
 
       console.log(`[Extract Memory Stage1 Only] 处理第 ${round} 轮对话`);
