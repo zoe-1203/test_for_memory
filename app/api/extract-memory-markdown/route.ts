@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { EXTRACT_MEMORY_MARKDOWN_PROMPT } from "@/lib/prompts_memory";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -22,14 +23,7 @@ function getModel(provider: "openai" | "deepseek") {
 
 // 读取 Markdown prompt 文件
 function loadPromptTemplate(): string {
-  const yamlPath = path.join(process.cwd(), "lib", "extract_memory_markdown.yaml");
-  const content = fs.readFileSync(yamlPath, "utf-8");
-
-  const systemMatch = content.match(/system:\s*content:\s*\|\s*\n([\s\S]*)/);
-  if (!systemMatch) {
-    throw new Error("无法解析 Markdown Prompt");
-  }
-  return systemMatch[1].trim();
+  return EXTRACT_MEMORY_MARKDOWN_PROMPT.trim();
 }
 
 // 替换占位符

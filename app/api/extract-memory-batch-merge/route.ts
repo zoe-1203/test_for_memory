@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { EXTRACT_MEMORY_STAGE2_PROMPT } from "@/lib/prompts_memory";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -20,18 +21,9 @@ function getModel(provider: "openai" | "deepseek") {
   return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
 }
 
-// 读取 YAML prompt 文件
 function loadPromptTemplate(yamlFileName: string): string {
-  const yamlPath = path.join(process.cwd(), "lib", yamlFileName);
-  const content = fs.readFileSync(yamlPath, "utf-8");
-  
-  // 提取 system content
-  const systemMatch = content.match(/system:\s*content:\s*\|\s*\n((?:[\s\S]*?)(?=\n\w+:|$))/);
-  if (!systemMatch) {
-    throw new Error(`无法解析 YAML 文件 ${yamlFileName} 中的 system content`);
-  }
-  
-  return systemMatch[1].trim();
+  if (yamlFileName === "extract_memory_stage2.yaml") return EXTRACT_MEMORY_STAGE2_PROMPT.trim();
+  throw new Error(`未知的 prompt 文件: ${yamlFileName}`);
 }
 
 // 替换 prompt 中的占位符
@@ -146,10 +138,14 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai", stage1Summaries } = body as {
+    const { provider = "openai", stage1Summaries, saveToFile, oldGlobalMemory: initialGlobalMemory } = body as {
       provider?: "openai" | "deepseek";
       stage1Summaries?: Array<{ round?: number; summary: string }>;
+      saveToFile?: boolean;
+      oldGlobalMemory?: string;
     };
+    const shouldSave = saveToFile ?? true;
+    let globalMemoryCarry = initialGlobalMemory ?? "";
     
     console.log(`[Batch Merge Memory] 使用模型提供方: ${provider}`);
 
@@ -172,10 +168,13 @@ export async function POST(req: Request) {
     const client = getClient(provider);
     const model = getModel(provider);
 
-    // 4. 准备保存目录
-    const outputDir = path.join(process.cwd(), "data", "extracted_memories_batch_merge");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    // 4. 准备保存目录（可选）
+    let outputDir = "";
+    if (shouldSave) {
+      outputDir = path.join(process.cwd(), "data", "extracted_memories_batch_merge");
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
     }
 
     // 5. 按每5个为一组进行批量合并
@@ -192,7 +191,7 @@ export async function POST(req: Request) {
     }> = [];
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-    let oldGlobalMemory = ""; // 上一批的全局记忆
+    let oldGlobalMemory = globalMemoryCarry; // 上一批的全局记忆
 
     for (let batchIndex = 0; batchIndex < Math.ceil(stage1Memories.length / BATCH_SIZE); batchIndex++) {
       const batch = batchIndex + 1;
@@ -245,20 +244,23 @@ export async function POST(req: Request) {
       const globalMemory = parseStage2Output(stage2RawOutput);
       console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2：合并完成`);
 
-      // 保存文件
-      const stage2FileName = `batch_${batch}_${timestamp}_stage2.md`;
-      const stage2FilePath = path.join(outputDir, stage2FileName);
-      fs.writeFileSync(stage2FilePath, stage2RawOutput, "utf-8");
-      console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2 输出已保存到: ${stage2FilePath}`);
+      let savedStage2Path: string | undefined;
+      let savedStage2PromptPath: string | undefined;
 
-      const stage2PromptFileName = `batch_${batch}_${timestamp}_stage2_prompt.txt`;
-      const stage2PromptFilePath = path.join(outputDir, stage2PromptFileName);
-      fs.writeFileSync(stage2PromptFilePath, stage2Prompt, "utf-8");
-      console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2 Prompt 已保存到: ${stage2PromptFilePath}`);
+      if (shouldSave) {
+        const stage2FileName = `batch_${batch}_${timestamp}_stage2.md`;
+        const stage2FilePath = path.join(outputDir, stage2FileName);
+        fs.writeFileSync(stage2FilePath, stage2RawOutput, "utf-8");
+        console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2 输出已保存到: ${stage2FilePath}`);
 
-      // 保存结果
-      const relativeStage2Path = `data/extracted_memories_batch_merge/${stage2FileName}`;
-      const relativeStage2PromptPath = `data/extracted_memories_batch_merge/${stage2PromptFileName}`;
+        const stage2PromptFileName = `batch_${batch}_${timestamp}_stage2_prompt.txt`;
+        const stage2PromptFilePath = path.join(outputDir, stage2PromptFileName);
+        fs.writeFileSync(stage2PromptFilePath, stage2Prompt, "utf-8");
+        console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2 Prompt 已保存到: ${stage2PromptFilePath}`);
+
+        savedStage2Path = `data/extracted_memories_batch_merge/${stage2FileName}`;
+        savedStage2PromptPath = `data/extracted_memories_batch_merge/${stage2PromptFileName}`;
+      }
 
       results.push({
         batch,
@@ -267,8 +269,8 @@ export async function POST(req: Request) {
         globalMemory,
         stage2RawOutput,
         stage2PromptText: stage2Prompt,
-        savedStage2Path: relativeStage2Path,
-        savedStage2PromptPath: relativeStage2PromptPath
+        savedStage2Path,
+        savedStage2PromptPath
       });
 
       // 更新旧全局记忆，用于下一批
@@ -288,7 +290,8 @@ export async function POST(req: Request) {
       ok: true,
       results,
       totalBatches: results.length,
-      totalTimeMs: totalTime
+      totalTimeMs: totalTime,
+      lastGlobalMemory: results[results.length - 1]?.globalMemory || oldGlobalMemory
     });
 
   } catch (e: any) {

@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import fs from "fs";
-import path from "path";
+import { EXTRACT_MEMORY_PROMPT } from "@/lib/prompts_memory";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -20,19 +19,9 @@ function getModel(provider: "openai" | "deepseek") {
   return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
 }
 
-// 读取 YAML prompt 文件
+// 获取 Prompt
 function loadPromptTemplate(): string {
-  const yamlPath = path.join(process.cwd(), "lib", "extract_memory.yaml");
-  const content = fs.readFileSync(yamlPath, "utf-8");
-  
-  // 提取 system content（简单解析，支持多行）
-  // 匹配 system: content: | 后面的所有内容（直到文件末尾或下一个顶级键）
-  const systemMatch = content.match(/system:\s*content:\s*\|\s*\n((?:[\s\S]*?)(?=\n\w+:|$))/);
-  if (!systemMatch) {
-    throw new Error("无法解析 YAML 文件中的 system content");
-  }
-  
-  return systemMatch[1].trim();
+  return EXTRACT_MEMORY_PROMPT.trim();
 }
 
 // 替换 prompt 中的占位符

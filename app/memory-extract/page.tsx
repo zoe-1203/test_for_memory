@@ -327,32 +327,62 @@ export default function MemoryExtractPage() {
       return;
     }
 
+    const sessions = uploadedText
+      .split(/^===\s*$/m)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (sessions.length === 0) {
+      alert('文件内容为空或格式不正确（需要使用 === 分隔）');
+      return;
+    }
+
+    const totalRounds = Math.min(roundLimit || sessions.length, sessions.length);
+    const chunkSize = 1; // 每次调用 1 轮以便即时显示
+
     const controller = new AbortController();
     setStage1AbortController(controller);
     setLoadingStage1Only(true);
     setStage1OnlyResults([]);
     setCurrentStage1OnlyRound(0);
-    setStage1Status('处理中...');
+    setStage1Status(`准备处理 ${totalRounds} 轮...`);
 
+    let processed = 0;
     try {
-      const res = await fetch('/api/extract-memory-stage1-only', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, fileContent: uploadedText, roundLimit }),
-        signal: controller.signal
-      });
+      while (processed < totalRounds) {
+        const remaining = totalRounds - processed;
+        const thisRoundLimit = Math.min(chunkSize, remaining);
 
-      const data = await res.json();
+        const res = await fetch('/api/extract-memory-stage1-only', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            fileContent: uploadedText,
+            roundLimit: thisRoundLimit,
+            startFrom: processed,
+            saveToFile: false
+          }),
+          signal: controller.signal
+        });
 
-      if (!data.ok) {
-        alert('处理失败：' + data.error);
-        setStage1Status('处理失败');
-        return;
+        const data = await res.json();
+        if (!data.ok) {
+          alert('处理失败：' + data.error);
+          setStage1Status('处理失败');
+          break;
+        }
+
+        const newResults = data.results || [];
+        processed += newResults.length;
+        setStage1OnlyResults((prev) => [...prev, ...newResults]);
+        setCurrentStage1OnlyRound(processed);
+        setStage1Status(`已完成 ${processed}/${totalRounds} 轮`);
       }
 
-      setStage1OnlyResults(data.results || []);
-      setCurrentStage1OnlyRound(data.results?.length || 0);
-      setStage1Status(`完成 ${data.results?.length || 0} 轮`);
+      if (processed === totalRounds) {
+        setStage1Status(`完成 ${processed} 轮`);
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         setStage1Status('已中止');
@@ -378,6 +408,7 @@ export default function MemoryExtractPage() {
       return;
     }
 
+    const BATCH_SIZE = 5;
     const controller = new AbortController();
     setBatchAbortController(controller);
     setLoadingBatchMerge(true);
@@ -385,30 +416,50 @@ export default function MemoryExtractPage() {
     setCurrentBatchMergeRound(0);
     setBatchStatus('处理中...');
 
+    let processed = 0;
+    let lastGlobalMemory = '';
+
     try {
-      const stage1Summaries = stage1OnlyResults.map((item) => ({
-        round: item.round,
-        summary: item.stage1Summary
-      }));
+      while (processed < stage1OnlyResults.length) {
+        const batch = stage1OnlyResults.slice(processed, processed + BATCH_SIZE);
+        const stage1Summaries = batch.map((item) => ({
+          round: item.round,
+          summary: item.stage1Summary
+        }));
 
-      const res = await fetch('/api/extract-memory-batch-merge', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, stage1Summaries }),
-        signal: controller.signal
-      });
+        const res = await fetch('/api/extract-memory-batch-merge', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            stage1Summaries,
+            saveToFile: false,
+            oldGlobalMemory: lastGlobalMemory
+          }),
+          signal: controller.signal
+        });
 
-      const data = await res.json();
+        const data = await res.json();
+        if (!data.ok) {
+          alert('处理失败：' + data.error);
+          setBatchStatus('处理失败');
+          break;
+        }
 
-      if (!data.ok) {
-        alert('处理失败：' + data.error);
-        setBatchStatus('处理失败');
-        return;
+        const newResults = data.results || [];
+        setBatchMergeResults((prev) => [...prev, ...newResults]);
+        processed += batch.length;
+        setCurrentBatchMergeRound(newResults.length);
+        setBatchStatus(`已合并 ${processed}/${stage1OnlyResults.length} 条记忆`);
+
+        if (newResults.length > 0) {
+          lastGlobalMemory = newResults[newResults.length - 1].globalMemory || lastGlobalMemory;
+        }
       }
 
-      setBatchMergeResults(data.results || []);
-      setCurrentBatchMergeRound(data.results?.length || 0);
-      setBatchStatus(`完成 ${data.results?.length || 0} 批`);
+      if (processed >= stage1OnlyResults.length) {
+        setBatchStatus(`完成 ${Math.ceil(stage1OnlyResults.length / BATCH_SIZE)} 批`);
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         setBatchStatus('已中止');

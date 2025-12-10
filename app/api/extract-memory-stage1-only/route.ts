@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
+import { EXTRACT_MEMORY_STAGE1_PROMPT } from "@/lib/prompts_memory";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -20,18 +21,10 @@ function getModel(provider: "openai" | "deepseek") {
   return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
 }
 
-// 读取 YAML prompt 文件
+// 获取 Prompt
 function loadPromptTemplate(yamlFileName: string): string {
-  const yamlPath = path.join(process.cwd(), "lib", yamlFileName);
-  const content = fs.readFileSync(yamlPath, "utf-8");
-  
-  // 提取 system content
-  const systemMatch = content.match(/system:\s*content:\s*\|\s*\n((?:[\s\S]*?)(?=\n\w+:|$))/);
-  if (!systemMatch) {
-    throw new Error(`无法解析 YAML 文件 ${yamlFileName} 中的 system content`);
-  }
-  
-  return systemMatch[1].trim();
+  if (yamlFileName === "extract_memory_stage1.yaml") return EXTRACT_MEMORY_STAGE1_PROMPT.trim();
+  throw new Error(`未知的 prompt 文件: ${yamlFileName}`);
 }
 
 // 替换 prompt 中的占位符
@@ -86,11 +79,15 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai", fileContent, roundLimit } = body as {
+    const { provider = "openai", fileContent, roundLimit, startFrom, saveToFile } = body as {
       provider?: "openai" | "deepseek";
       fileContent?: string;
       roundLimit?: number;
+      startFrom?: number;
+      saveToFile?: boolean;
     };
+    const shouldSave = saveToFile ?? true;
+    const startIndex = Math.max(0, startFrom ?? 0);
     
     console.log(`[Extract Memory Stage1 Only] 使用模型提供方: ${provider}`);
 
@@ -107,20 +104,24 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const limitedSessions = typeof roundLimit === "number" && roundLimit > 0
-      ? dialogueSessions.slice(0, roundLimit)
-      : dialogueSessions;
+    const sliceEnd = typeof roundLimit === "number" && roundLimit > 0
+      ? startIndex + roundLimit
+      : dialogueSessions.length;
+    const limitedSessions = dialogueSessions.slice(startIndex, sliceEnd);
 
-    console.log(`[Extract Memory Stage1 Only] 找到 ${limitedSessions.length} 个对话轮次（原始 ${dialogueSessions.length}）`);
+    console.log(`[Extract Memory Stage1 Only] 找到 ${limitedSessions.length} 个对话轮次（原始 ${dialogueSessions.length}），startFrom=${startIndex}，roundLimit=${roundLimit ?? 'all'}`);
 
     // 3. 初始化客户端
     const client = getClient(provider);
     const model = getModel(provider);
 
-    // 4. 准备保存目录
-    const outputDir = path.join(process.cwd(), "data", "extracted_memories_stage1_only");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    // 4. 准备保存目录（可选）
+    let outputDir = "";
+    if (shouldSave) {
+      outputDir = path.join(process.cwd(), "data", "extracted_memories_stage1_only");
+      if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
     }
 
     // 5. 循环处理每一轮对话（只做 Stage 1）
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
 
     for (let i = 0; i < limitedSessions.length; i++) {
       const thisSessionRaw = limitedSessions[i];
-      const round = i + 1;
+      const round = startIndex + i + 1;
 
       console.log(`[Extract Memory Stage1 Only] 处理第 ${round} 轮对话`);
 
@@ -192,28 +193,31 @@ export async function POST(req: Request) {
       const stage1Summary = parseStage1Output(stage1ResponseText);
       console.log(`[Extract Memory Stage1 Only] 第 ${round} 轮 Stage 1：提取摘要完成`);
 
-      // 保存文件
-      const stage1FileName = `round_${round}_${timestamp}_stage1.md`;
-      const stage1FilePath = path.join(outputDir, stage1FileName);
-      fs.writeFileSync(stage1FilePath, stage1ResponseText, "utf-8");
-      console.log(`[Extract Memory Stage1 Only] 第 ${round} 轮 Stage 1 输出已保存到: ${stage1FilePath}`);
+      let savedStage1Path: string | undefined;
+      let savedStage1PromptPath: string | undefined;
 
-      const stage1PromptFileName = `round_${round}_${timestamp}_stage1_prompt.txt`;
-      const stage1PromptFilePath = path.join(outputDir, stage1PromptFileName);
-      fs.writeFileSync(stage1PromptFilePath, stage1Prompt, "utf-8");
-      console.log(`[Extract Memory Stage1 Only] 第 ${round} 轮 Stage 1 Prompt 已保存到: ${stage1PromptFilePath}`);
+      if (shouldSave) {
+        const stage1FileName = `round_${round}_${timestamp}_stage1.md`;
+        const stage1FilePath = path.join(outputDir, stage1FileName);
+        fs.writeFileSync(stage1FilePath, stage1ResponseText, "utf-8");
+        console.log(`[Extract Memory Stage1 Only] 第 ${round} 轮 Stage 1 输出已保存到: ${stage1FilePath}`);
 
-      // 保存结果
-      const relativeStage1Path = `data/extracted_memories_stage1_only/${stage1FileName}`;
-      const relativeStage1PromptPath = `data/extracted_memories_stage1_only/${stage1PromptFileName}`;
+        const stage1PromptFileName = `round_${round}_${timestamp}_stage1_prompt.txt`;
+        const stage1PromptFilePath = path.join(outputDir, stage1PromptFileName);
+        fs.writeFileSync(stage1PromptFilePath, stage1Prompt, "utf-8");
+        console.log(`[Extract Memory Stage1 Only] 第 ${round} 轮 Stage 1 Prompt 已保存到: ${stage1PromptFilePath}`);
+
+        savedStage1Path = `data/extracted_memories_stage1_only/${stage1FileName}`;
+        savedStage1PromptPath = `data/extracted_memories_stage1_only/${stage1PromptFileName}`;
+      }
 
       results.push({
         round,
         stage1Summary,
         stage1RawOutput: stage1ResponseText,
         stage1PromptText: stage1Prompt,
-        savedStage1Path: relativeStage1Path,
-        savedStage1PromptPath: relativeStage1PromptPath
+        savedStage1Path,
+        savedStage1PromptPath
       });
 
       const roundEndTime = Date.now();
