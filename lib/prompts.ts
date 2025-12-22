@@ -354,8 +354,9 @@ ${cardContent}
 学生：偏向课程、考试、升学、未来规划
 非学生：偏向工作项目、职业选择、身份切换
 
-## 财富需要根据身份类型自动调整重点：
-学生：支出时偏向花钱，而不是投资
+## 「财富」需要根据身份类型自动调整重点：
+- 只有该牌很明显是关于金钱的牌，才需要进行解读。此外，注意一月、二月、十二月的金钱流动。
+区分学生和非学生：学生支出时偏向叙述花钱，而不是投资
 
 `;
 }
@@ -416,7 +417,7 @@ ${monthlyFortunes}
 {
   "analysis": "分析整体运势走向，以及各个月的运势大概是多少分。",
   "hookStarting": "放在年运的开头段落，引人入胜的一小段口语化内容，引出下面12个月运势。",
-  "summary": "对全年运势和关键变化的预测的总结。口吻口语化而有亲和力，多用"你"、"我看到"。注意时态是将来时。在summary结尾可以引出后面还有六个细分领域的运势，引导用户抽牌。",
+  "summary": "对全年运势和关键变化的预测的总结。口吻口语化而有亲和力，多用"你"、"我看到"。注意时态是将来时。在summary结尾可以引出后面还有六个细分领域（感情、${careerStatus === 'middle_high_school' || careerStatus === 'college_above' ? '学业' : careerStatus === 'worker' || careerStatus === 'freelance' ? '事业' : '事业'}、财富、健康与身心状态、人际关系与社交氛围、内在成长与心理能量）的运势，引导用户抽牌。",
   "January": "一月运势得分（int 格式，0~100）",
   "February": "二月运势得分（int 格式，0~100）",
   "March": "三月运势得分（int 格式，0~100）",
@@ -471,16 +472,21 @@ ${areaInfoText}
  * 用于生成结尾收束 + 年末 anchor 一句话
  */
 export function getAnnualFortuneClosingPrompt(params: {
-  decemberContent: string;
+  overviewText: string;
+  yearSummary: string;
   areaInfoText: string;
 }): string {
-  const { decemberContent, areaInfoText } = params;
+  const { overviewText, yearSummary, areaInfoText } = params;
 
   return `请你根据我之前的年度运势，给我一个总结语。这个总结语是预测明年运势的。
 
-我之前输出的十二个月运势如下（纯文本）：
+我抽到的12张牌如下：
 
-${decemberContent}
+${overviewText}
+
+年运总结：
+
+${yearSummary}
 
 我在六个领域的年度解读如下（纯文本）：
 
@@ -511,16 +517,21 @@ ${areaInfoText}
  * 用于生成玄学指引好物推荐
  */
 export function getAnnualFortuneGoodLuckItemsPrompt(params: {
-  decemberContent: string;
+  overviewText: string;
+  yearSummary: string;
   areaInfoText: string;
 }): string {
-  const { decemberContent, areaInfoText } = params;
+  const { overviewText, yearSummary, areaInfoText } = params;
 
-  return `请你根据我之前的运势，帮我选择玄学指引好物。
+  return `请你根据我之前的运势，帮我选择适合的玄学指引物（幸运物）。你对幸运物之间细微的差异如数家珍。
 
-我之前输出的十二月运势如下（纯文本）：
+我抽到的12张牌如下：
 
-${decemberContent}
+${overviewText}
+
+年运总结：
+
+${yearSummary}
 
 我在六个领域的年度解读如下（纯文本）：
 
@@ -528,29 +539,31 @@ ${areaInfoText}
 
 请从以下 **仅限的11个幸运物列表** 中，挑选 **唯一最匹配** 的一个推荐给用户：
 
-1. 白水晶（关键词：综合平衡、净化、专注）
-2. 粉水晶（关键词：桃花、人缘、治愈）
-3. 黑曜石（关键词：防小人、健康、辟邪）
-4. 黄水晶（关键词：搞钱、事业、自信）
-5. 香薰蜡烛（关键词：动力、愿望显化、温暖）
-6. 扩香石（关键词：焦虑、失眠、潜意识）
-7. 鼠尾草（关键词：倒霉、净化环境、重启）
-8. 干花香囊（关键词：贵人、出行、气质）
-9. 捕梦网（关键词：噩梦、迷茫、守护）
-10. 多肉植物（关键词：扎根、耐心、稳重）
-11. 幸运御守（关键词：特定加持、信念、考试/交通）
+1. 白水晶（适合需要纯粹、思绪较多、需要归零的用户）
+2. 粉水晶（适合需要更爱自己、需要柔软、需要悦纳的用户，比如可能是多圣杯、宝剑的运势）
+3. 黄水晶（适合需要自信、需要明亮的心情的用户）
+4. 香薰蜡烛（适合需要微光、愿望、温暖时刻 的用户）
+5. 扩香石（适合需要呼吸、无声拥抱、松弛感 的用户）
+6. 鼠尾草（适合需要重启自己、把情绪化为烟雾、轻盈的用户）
+7. 干花香囊（适合需要更多地贴近自然、需要安宁的用户）
+8. 捕梦网（适合需要结界、好梦、温柔的用户）
+9. 多肉植物（适合需要扎根、慢节奏、陪伴的用户）
+10. 幸运御守（适合需要信念、宇宙回信、想要不再孤单的用户）
+11. 黑曜石（适合需要屏蔽噪音、界限感的用户）
 
 ## 输出格式
 
 {
-  "analysis": "为什么需要这个玄学指引好物",
-  "goodLuckItem": "玄学好物的名字"
+  "analysis": "为什么需要这个幸运物，要结合用户运势和幸运物括号内的内容，找到11个之中最适合的那个，并且说出不选其他的原因。",
+  "keyStuckPoint": "用一句话总结核心卡点，根据这个卡点选择幸运物",
+  "goodLuckItem": "幸运物的名字"
 }
 
 example:
 {
   "analysis": "为什么需要这个玄学指引好物",
-  "goodLuckItem": "萤石"
+  "keyStuckPoint": "用一句话总结核心卡点",
+  "goodLuckItem": "香薰蜡烛"
 }
 
 注意：你只需要输出上述 Json 对象本身，不需要额外说明文字。`;

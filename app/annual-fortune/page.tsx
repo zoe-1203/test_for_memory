@@ -848,8 +848,23 @@ export default function AnnualFortunePage() {
     setAreaOverviewElapsedTime(null);
     setAreaOverviewTimeStats(null);
 
-    const december = results.find((r) => r.month === 12);
-    const decemberContent = december?.content || '';
+    // 生成12张牌的简要概览
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    const overviewLines = cards.map((card, index) => {
+      const monthName = monthNames[index];
+      const position = card.reversed ? "逆位" : "正位";
+      return `${monthName}抽到了${position}的${card.name}（${card.cnName}）。`;
+    });
+    const overviewText = overviewLines.join('\n');
+
+    // 获取年运总结
+    const yearSummary = summaryResult?.summary || '';
+
+    // 验证必要的数据
+    if (!yearSummary) {
+      alert('年运总结数据不完整，请重新生成年度总览');
+      return;
+    }
 
     const overallStart = Date.now();
     const radarStart = Date.now();
@@ -906,7 +921,8 @@ export default function AnnualFortunePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          decemberContent,
+          overviewText,
+          yearSummary,
           areas: areaResults.map((r) => ({
             areaName: r.areaName,
             hookSentece: r.hookSentece,
@@ -921,7 +937,8 @@ export default function AnnualFortunePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          decemberContent,
+          overviewText,
+          yearSummary,
           areas: areaResults.map((r) => ({
             areaName: r.areaName,
             hookSentece: r.hookSentece,

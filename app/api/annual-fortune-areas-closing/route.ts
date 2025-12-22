@@ -48,16 +48,18 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       provider = "openai",
-      decemberContent,
+      overviewText,
+      yearSummary,
       areas
     } = body as {
       provider?: "openai" | "deepseek";
-      decemberContent: string;
+      overviewText: string;
+      yearSummary: string;
       areas: AreaClosingInput[];
     };
 
-    if (!decemberContent) {
-      return NextResponse.json({ ok: false, error: "需要提供十二月运势内容" }, { status: 400 });
+    if (!overviewText || !yearSummary) {
+      return NextResponse.json({ ok: false, error: "需要提供12张牌概览和年运总结" }, { status: 400 });
     }
 
     if (!Array.isArray(areas) || areas.length === 0) {
@@ -76,7 +78,8 @@ export async function POST(req: Request) {
       .join("\n\n");
 
     const prompt = getAnnualFortuneClosingPrompt({
-      decemberContent,
+      overviewText,
+      yearSummary,
       areaInfoText
     });
 
