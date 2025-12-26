@@ -1,5 +1,18 @@
-// 记忆提取相关 Prompt（原 YAML 汇总）
+/**
+ * ARCHIVED PROMPTS
+ *
+ * This file contains old/deprecated prompt templates.
+ * For current prompts, see: lib/prompts_current.ts
+ *
+ * Most prompts here are for reference only, except EXTRACT_MEMORY_STAGE2_PROMPT
+ * which is still used by the batch-merge route.
+ */
 
+// ==========================================
+// OLD PROMPTS (Not currently used, kept for reference)
+// ==========================================
+
+//第一版方案的记忆 Json 格式
 export const EXTRACT_MEMORY_PROMPT = `
 你是一个“信息整理器”，负责提取、整理和添加输入的内容，并形成新的 fact。用 Json 格式输出。
 请你优先在已有的 fact 的 value 之后进行添加。如果遇到和现有 fact 明显冲突的情况，则更新 fact。fact 中提到的人物尽量不要删除，如果是确定可以合并才合并。
@@ -90,6 +103,7 @@ facts: \`\`\`{{old_factual_memory}}\`\`\`
 {{old_tarot_overview}}
 `;
 
+//第一版方案的记忆 Markdown 格式
 export const EXTRACT_MEMORY_MARKDOWN_PROMPT = `
 请你帮我从对话中提取值得记住的用户的内容，放进 facts 里，facts 上限为2000字。
 facts 只存入用户口述的事实，而不存塔罗师说的内容，不要对用户没说的做揣测。
@@ -119,38 +133,60 @@ facts: \`\`\`{{old_factual_memory}}\`\`\`
 {{old_tarot_overview}}
 `;
 
+//当前版本的记忆 Prompt，Markdown 格式
 export const EXTRACT_MEMORY_STAGE1_PROMPT = `
 请你帮我从这段对话中提取出值得被记住的关于用户的部分，放进 facts 里。facts 上限为2000字。
 
 注意，塔罗师说的内容可能不是事实，只有用户说的内容才是事实。
+
 facts 只存入用户口述的事实，而不存塔罗师说的内容，不要对用户没说的做揣测。
-topic 存入用户这次关心的主题，以及用户关心的人物名等。topic 简单一句话即可。
+
+facts 结构分为两块。第一块是用户涉及某个/几个具体人物的内容，重点关注用户和这个人物间发生的具体事件。
+第二块是仅仅有关用户自身的内容。可以为空，不要做出揣测。如果为空则写一句话：未提及与具体人物无关的自身情况，此部分为空。
+
+topic area 存入 感情/事业/学业/生活/运势/决策/自我成长 中的一个。
+topic summary 存入10个字的具体内容，比如用户这次关心的主题，以及用户关心的人物名等。topic 简单一句话即可。
 用 markdown 格式输出。
 
 请你不要做揣测，而只记录事实。
-如果提及不同的人物，需要单开一段。
+如果提及不同的人物，需要在 fact 中另开一段。
 
 输出格式：
 请用自然语言输出，markdown 格式，但不要用list，而是用自然语言段落。
 
-比如：
-## facts
+输出格式比如：
+# facts
+## 用户涉及某个具体人物的内容
 ...
 
-## topic
+## 用户自身内容
+...
+
+# topic area
+...
+
+# topic summary
 ...
 
 对话内容：
 {{this_session_raw}}
 `;
 
+// ==========================================
+// ACTIVE PROMPT (Still used by batch-merge route)
+// ==========================================
+
 export const EXTRACT_MEMORY_STAGE2_PROMPT = `
-请你帮我更新记忆，我需要你把新的事实合并进旧事实内。请你帮我把旧的事实和新的事实进行合并更新。
+请你帮我更新这份记忆内容，我需要你把新的事实合并进旧事实内。请你帮我把旧的事实和新的事实进行合并更新。
 
 我的要求是总事实记录不要超过2000字。
 并且如果涉及到冲突的部分，请你以新记忆为准。
 
-如果超出了2000字，你需要对要记录的事实进行取舍，有必要时进行少许概括，但保留大部分细节和原意。
+## 注意
+- 如果超出了2000字，你需要对要记录的事实进行取舍，有必要时进行少许概括，但保留大部分细节和原意。
+- 在超出2000字需要取舍时，你需要根据用户的新事实的时间，来进行恰当的合并。比如可以把同一周/同一个月份用户发生的事情、询问的内容合并至一个段落。
+- 在取舍时，你需要打上时间戳，比如xxxx年xx月xx日，发生了什么。
+同样的月份发生的事情，在超过2000字时，可以合并。
 
 请你按照含义适当进行分段。比如提到不同的人物，则可以分为两段。
 
@@ -162,10 +198,12 @@ export const EXTRACT_MEMORY_STAGE2_PROMPT = `
 旧事实如下：
 {{old}}
 
+旧事实发生的时间：
+{{oldTimeInfo}}
+
 新的事实如下：
 {{facts}}
 
-新事实发生的时间
+新事实发生的时间：
 {{timeInfo}}
 `;
-

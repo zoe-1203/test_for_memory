@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import { EXTRACT_MEMORY_STAGE1_PROMPT } from "@/lib/prompts_memory";
+import { EXTRACT_MEMORY_STAGE1_XML_PROMPT, replacePlaceholders } from "@/lib/prompts_current";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -24,38 +25,71 @@ function getModel(provider: "openai" | "deepseek") {
 // 获取 Prompt
 function loadPromptTemplate(yamlFileName: string): string {
   if (yamlFileName === "extract_memory_stage1.yaml") return EXTRACT_MEMORY_STAGE1_PROMPT.trim();
+  if (yamlFileName === "extract_memory_stage1_xml.yaml") return EXTRACT_MEMORY_STAGE1_XML_PROMPT.trim();
   throw new Error(`未知的 prompt 文件: ${yamlFileName}`);
 }
 
-// 替换 prompt 中的占位符
-function replacePlaceholders(
-  template: string,
-  placeholders: Record<string, string>
-): string {
-  let result = template;
-  for (const [key, value] of Object.entries(placeholders)) {
-    const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-    result = result.replace(regex, value || "");
+// 截断塔罗师第一次回复的第一个自然段
+function truncateFirstTarotReply(session: string): string {
+  // 找到"用户问："后面的"塔罗师回："
+  const tarotReplyStart = session.indexOf('塔罗师回："');
+  if (tarotReplyStart === -1) {
+    return session; // 如果没有找到，返回原内容
   }
-  return result;
+  
+  const quoteStart = tarotReplyStart + '塔罗师回："'.length;
+  const replyContent = session.substring(quoteStart);
+  
+  // 找到第一个自然段（到第一个换行符）
+  const firstNewlineIndex = replyContent.indexOf('\n');
+  if (firstNewlineIndex === -1) {
+    return session; // 如果没有换行符，返回原内容
+  }
+  
+  // 找到第一个自然段
+  const firstParagraph = replyContent.substring(0, firstNewlineIndex);
+  
+  // 找到整个回复的结束引号（应该在---分隔符之前或文件末尾）
+  // 从第一个换行符之后开始查找，找到最后一个引号（在---之前）
+  const afterFirstParagraph = replyContent.substring(firstNewlineIndex);
+  const separatorIndex = afterFirstParagraph.indexOf('\n---');
+  const searchEnd = separatorIndex !== -1 ? firstNewlineIndex + separatorIndex : replyContent.length;
+  
+  // 在搜索范围内找到最后一个引号
+  let endQuoteIndex = -1;
+  for (let i = searchEnd - 1; i >= firstNewlineIndex; i--) {
+    if (replyContent[i] === '"') {
+      endQuoteIndex = i;
+      break;
+    }
+  }
+  
+  if (endQuoteIndex === -1) {
+    return session; // 如果没有找到结束引号，返回原内容
+  }
+  
+  // 构建替换后的内容：保留第一个自然段，删除中间的内容
+  const beforeReply = session.substring(0, quoteStart);
+  const afterReply = replyContent.substring(endQuoteIndex + 1);
+  
+  return beforeReply + firstParagraph + '"' + afterReply;
 }
 
 // 解析对话文件，按 === 分割
-function parseDialogueFile(contentOverride?: string): string[] {
+function parseDialogueFile(contentOverride?: string, fileName?: string): string[] {
+  const defaultFile = "0B862A48-0A75-4D60-8427-952E9B15B2EC_extracted_timeOrder.txt";
+  const targetFile = fileName || defaultFile;
+
   const content = contentOverride ?? fs.readFileSync(
-    path.join(
-      process.cwd(),
-      "data",
-      "raw_dialogue",
-      "0B862A48-0A75-4D60-8427-952E9B15B2EC_extracted_timeOrder.txt"
-    ),
+    path.join(process.cwd(), "data", "raw_dialogue", targetFile),
     "utf-8"
   );
 
   return content
     .split(/^===\s*$/m)
     .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .filter(s => s.length > 0)
+    .map(s => truncateFirstTarotReply(s)); // 应用截断函数
 }
 
 // 解析 stage1 输出（提取 facts）
@@ -79,23 +113,26 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai", fileContent, roundLimit, startFrom, saveToFile } = body as {
+    const { provider = "openai", fileContent, roundLimit, startFrom, saveToFile, format = "markdown", selectedFile } = body as {
       provider?: "openai" | "deepseek";
       fileContent?: string;
       roundLimit?: number;
       startFrom?: number;
       saveToFile?: boolean;
+      format?: "markdown" | "xml";
+      selectedFile?: string;
     };
     const shouldSave = saveToFile ?? true;
     const startIndex = Math.max(0, startFrom ?? 0);
-    
-    console.log(`[Extract Memory Stage1 Only] 使用模型提供方: ${provider}`);
 
-    // 1. 加载 prompt 模板（只使用 stage1）
-    const stage1Template = loadPromptTemplate("extract_memory_stage1.yaml");
-    
+    console.log(`[Extract Memory Stage1 Only] 使用模型提供方: ${provider}, 格式: ${format}, 文件: ${selectedFile || '默认'}`);
+
+    // 1. 加载 prompt 模板（根据格式选择）
+    const templateName = format === "xml" ? "extract_memory_stage1_xml.yaml" : "extract_memory_stage1.yaml";
+    const stage1Template = loadPromptTemplate(templateName);
+
     // 2. 解析对话文件
-    const dialogueSessions = parseDialogueFile(fileContent);
+    const dialogueSessions = parseDialogueFile(fileContent, selectedFile);
     
     if (dialogueSessions.length === 0) {
       return NextResponse.json({ 
@@ -115,10 +152,11 @@ export async function POST(req: Request) {
     const client = getClient(provider);
     const model = getModel(provider);
 
-    // 4. 准备保存目录（可选）
+    // 4. 准备保存目录（可选，根据格式选择不同目录）
     let outputDir = "";
     if (shouldSave) {
-      outputDir = path.join(process.cwd(), "data", "extracted_memories_stage1_only");
+      const dirName = format === "xml" ? "extracted_memories_stage1_only_xml" : "extracted_memories_stage1_only";
+      outputDir = path.join(process.cwd(), "data", dirName);
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
@@ -137,6 +175,19 @@ export async function POST(req: Request) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
 
     for (let i = 0; i < limitedSessions.length; i++) {
+      // 检查请求是否已被中止
+      if (req.signal?.aborted) {
+        console.log(`[Extract Memory Stage1 Only] 请求已被中止，停止处理。已完成 ${results.length}/${limitedSessions.length} 轮`);
+        return NextResponse.json({
+          ok: true,
+          results,
+          aborted: true,
+          totalRounds: results.length,
+          totalTimeMs: Date.now() - startTime,
+          message: `已中止，完成了 ${results.length}/${limitedSessions.length} 轮`
+        });
+      }
+
       const thisSessionRaw = limitedSessions[i];
       const round = startIndex + i + 1;
 
