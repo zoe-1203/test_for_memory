@@ -128,6 +128,34 @@ function cleanFactsXmlForCopy(facts: string): string {
   return parts.join('\n\n').trim();
 }
 
+// 根据 ifHasOtherName 过滤 XML 格式的 facts
+function cleanFactsXmlWithNameFilter(facts: string, ifHasOtherName: boolean | null): string {
+  const factsMatch = facts.match(/<facts>([\s\S]*?)<\/facts>/i);
+  if (!factsMatch) return facts.trim();
+
+  const factsContent = factsMatch[1];
+  const parts: string[] = [];
+
+  // 只有 ifHasOtherName 为 true 时才包含 personRelatedContent
+  if (ifHasOtherName === true) {
+    const personMatch = factsContent.match(/<personRelatedContent>([\s\S]*?)<\/personRelatedContent>/i);
+    if (personMatch && personMatch[1].trim()) {
+      parts.push(personMatch[1].trim());
+    }
+  }
+
+  // userSelfContent 始终包含
+  const selfMatch = factsContent.match(/<userSelfContent>([\s\S]*?)<\/userSelfContent>/i);
+  if (selfMatch && selfMatch[1].trim()) {
+    const selfContent = selfMatch[1].trim();
+    if (!selfContent.includes('未提及') || !selfContent.includes('此部分为空')) {
+      parts.push(selfContent);
+    }
+  }
+
+  return parts.join('\n\n').trim();
+}
+
 export default function MemoryExtractPage() {
   const [loading, setLoading] = useState(false);
   const [loadingMarkdown, setLoadingMarkdown] = useState(false);
@@ -1051,7 +1079,11 @@ export default function MemoryExtractPage() {
   };
 
   // 复制 Stage1 记忆为 Stage2 格式
-  const handleCopyStage1ForStage2 = (results: Stage1OnlyResult[], isXml: boolean = true) => {
+  const handleCopyStage1ForStage2 = (
+    results: Stage1OnlyResult[],
+    isXml: boolean = true,
+    withNameAnalysisResults?: Stage1WithNameAnalysisResult[]
+  ) => {
     if (results.length === 0) {
       alert('没有可复制的 Stage 1 结果');
       return;
@@ -1071,7 +1103,16 @@ export default function MemoryExtractPage() {
       // 根据格式选择清理方式
       let cleanedFacts: string;
       if (isXml) {
-        cleanedFacts = cleanFactsXmlForCopy(item.stage1RawOutput || item.stage1Summary);
+        // 如果有称呼分析结果，根据 ifHasOtherName 过滤
+        const nameAnalysisItem = withNameAnalysisResults?.find(r => r.round === item.round);
+        if (nameAnalysisItem && nameAnalysisItem.ifHasOtherName !== null) {
+          cleanedFacts = cleanFactsXmlWithNameFilter(
+            item.stage1RawOutput || item.stage1Summary,
+            nameAnalysisItem.ifHasOtherName
+          );
+        } else {
+          cleanedFacts = cleanFactsXmlForCopy(item.stage1RawOutput || item.stage1Summary);
+        }
       } else {
         // Markdown 格式直接使用 summary
         cleanedFacts = item.stage1Summary;
@@ -1319,7 +1360,11 @@ export default function MemoryExtractPage() {
                   const results = stage1WithNameAnalysisResults.length > 0
                     ? stage1WithNameAnalysisResults
                     : stage1OnlyXmlResults;
-                  handleCopyStage1ForStage2(results as Stage1OnlyResult[], true);
+                  handleCopyStage1ForStage2(
+                    results as Stage1OnlyResult[],
+                    true,
+                    stage1WithNameAnalysisResults.length > 0 ? stage1WithNameAnalysisResults : undefined
+                  );
                 }}
                 disabled={stage1OnlyXmlResults.length === 0 && stage1WithNameAnalysisResults.length === 0}
                 style={{
