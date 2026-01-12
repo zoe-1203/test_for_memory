@@ -37,6 +37,51 @@ function replacePlaceholders(
     .replace(/\{\{this_session_raw\}\}/g, thisSessionRaw);
 }
 
+// 截断塔罗师第一次回复的第一个自然段
+function truncateFirstTarotReply(session: string): string {
+  // 找到"用户问："后面的"塔罗师回："
+  const tarotReplyStart = session.indexOf('塔罗师回："');
+  if (tarotReplyStart === -1) {
+    return session; // 如果没有找到，返回原内容
+  }
+  
+  const quoteStart = tarotReplyStart + '塔罗师回："'.length;
+  const replyContent = session.substring(quoteStart);
+  
+  // 找到第一个自然段（到第一个换行符）
+  const firstNewlineIndex = replyContent.indexOf('\n');
+  if (firstNewlineIndex === -1) {
+    return session; // 如果没有换行符，返回原内容
+  }
+  
+  // 找到第一个自然段
+  const firstParagraph = replyContent.substring(0, firstNewlineIndex);
+  
+  // 找到整个回复的结束引号（应该在---分隔符之前或文件末尾）
+  const afterFirstParagraph = replyContent.substring(firstNewlineIndex);
+  const separatorIndex = afterFirstParagraph.indexOf('\n---');
+  const searchEnd = separatorIndex !== -1 ? firstNewlineIndex + separatorIndex : replyContent.length;
+  
+  // 在搜索范围内找到最后一个引号
+  let endQuoteIndex = -1;
+  for (let i = searchEnd - 1; i >= firstNewlineIndex; i--) {
+    if (replyContent[i] === '"') {
+      endQuoteIndex = i;
+      break;
+    }
+  }
+  
+  if (endQuoteIndex === -1) {
+    return session; // 如果没有找到结束引号，返回原内容
+  }
+  
+  // 构建替换后的内容：保留第一个自然段，删除中间的内容
+  const beforeReply = session.substring(0, quoteStart);
+  const afterReply = replyContent.substring(endQuoteIndex + 1);
+  
+  return beforeReply + firstParagraph + '"' + afterReply;
+}
+
 // 解析对话文件，按 === 分割
 function parseDialogueFile(): string[] {
   const dialoguePath = path.join(
@@ -53,7 +98,8 @@ function parseDialogueFile(): string[] {
   const sessions = content
     .split(/^===\s*$/m)
     .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .filter(s => s.length > 0)
+    .map(s => truncateFirstTarotReply(s)); // 应用截断函数
   
   return sessions;
 }

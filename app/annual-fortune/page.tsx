@@ -43,59 +43,6 @@ type AreaResult = {
   success: boolean;
 };
 
-const GOOD_LUCK_ITEMS_META: Record<
-  string,
-  {
-    tags: string;
-    blessing: string;
-  }
-> = {
-  白水晶: {
-    tags: '#纯粹 #清理思绪 #归零',
-    blessing: '让它的通透，滤去你内心所有的纷乱思绪。'
-  },
-  粉水晶: {
-    tags: '#爱自己 #柔软 #悦纳',
-    blessing: '触碰它的瞬间，请记得时刻“温柔待己”。'
-  },
-  黑曜石: {
-    tags: '#守护 #界限感 #屏蔽噪音',
-    blessing: '它是沉默而坚固的盾，替你阻挡外界的喧嚣。'
-  },
-  黄水晶: {
-    tags: '#自信 #捕捉阳光 #明亮',
-    blessing: '像捕捉了一束凝固的阳光，时刻照亮你的自信。'
-  },
-  香薰蜡烛: {
-    tags: '#微光 #愿望 #温暖时刻',
-    blessing: '摇曳的微光，不仅照亮长夜，更温热你心中的愿景。'
-  },
-  扩香石: {
-    tags: '#呼吸 #无声拥抱 #松弛感',
-    blessing: '让看不见的香气，给你一个无声却安稳的拥抱。'
-  },
-  鼠尾草: {
-    tags: '#重启 #烟雾 #轻盈',
-    blessing: '当烟雾缭绕升起，沉重的情绪便随之飘散归零。'
-  },
-  干花香囊: {
-    tags: '#自然 #随身花园 #安宁',
-    blessing: '仿佛把春日花园的安宁，折叠起来随身携带。'
-  },
-  捕梦网: {
-    tags: '#结界 #好梦 #温柔',
-    blessing: '替你网住白日的纷扰，只许温柔的月光入梦。'
-  },
-  多肉植物: {
-    tags: '#扎根 #慢节奏 #陪伴',
-    blessing: '看着它慢吞吞地生长，治愈你那一刻慌张的节奏。'
-  },
-  幸运御守: {
-    tags: '#信念 #宇宙回信 #不孤单',
-    blessing: '这是宇宙寄给你的信，轻声告诉你：别怕，我在。'
-  }
-};
-
 // 抽取12张牌（保证不重复）
 function drawTwelveCards(): Card[] {
   const indices = new Set<number>();
@@ -166,12 +113,6 @@ export default function AnnualFortunePage() {
   const [closingTimeStats, setClosingTimeStats] = useState<any>(null);
   const [radarClosingTotalTime, setRadarClosingTotalTime] = useState<number | null>(null);
   const [radarClosingLoading, setRadarClosingLoading] = useState(false);
-  const [goodLuckItemsResult, setGoodLuckItemsResult] = useState<{
-    analysis: string;
-    goodLuckItem: string;
-  } | null>(null);
-  const [goodLuckItemsElapsedTime, setGoodLuckItemsElapsedTime] = useState<number | null>(null);
-  const [goodLuckItemsTimeStats, setGoodLuckItemsTimeStats] = useState<any>(null);
   const [areaOverviewResult, setAreaOverviewResult] = useState<{
     startingOverview: string;
   } | null>(null);
@@ -201,9 +142,6 @@ export default function AnnualFortunePage() {
     setClosingTimeStats(null);
     setRadarClosingTotalTime(null);
     setRadarClosingLoading(false);
-    setGoodLuckItemsResult(null);
-    setGoodLuckItemsElapsedTime(null);
-    setGoodLuckItemsTimeStats(null);
     setAreaOverviewResult(null);
     setAreaOverviewElapsedTime(null);
     setAreaOverviewTimeStats(null);
@@ -629,24 +567,6 @@ export default function AnnualFortunePage() {
       });
     }
 
-    // 玄学指引好物
-    if (goodLuckItemsResult) {
-      lines.push('');
-      lines.push('==============================');
-      lines.push('【玄学指引好物】');
-      lines.push('==============================');
-      lines.push('');
-      lines.push(`推荐好物：${goodLuckItemsResult.goodLuckItem || '（未提供）'}`);
-      const meta = GOOD_LUCK_ITEMS_META[goodLuckItemsResult.goodLuckItem];
-      if (meta) {
-        lines.push(`标签：${meta.tags}`);
-        lines.push(`祝福语：${meta.blessing}`);
-      }
-      lines.push('');
-      lines.push('解析说明：');
-      lines.push(goodLuckItemsResult.analysis || '（未提供）');
-    }
-
     // 年度总结语
     if (closingResult) {
       lines.push('');
@@ -841,9 +761,6 @@ export default function AnnualFortunePage() {
     setClosingResult(null);
     setClosingElapsedTime(null);
     setClosingTimeStats(null);
-    setGoodLuckItemsResult(null);
-    setGoodLuckItemsElapsedTime(null);
-    setGoodLuckItemsTimeStats(null);
     setAreaOverviewResult(null);
     setAreaOverviewElapsedTime(null);
     setAreaOverviewTimeStats(null);
@@ -869,7 +786,6 @@ export default function AnnualFortunePage() {
     const overallStart = Date.now();
     const radarStart = Date.now();
     const closingStart = Date.now();
-    const goodLuckItemsStart = Date.now();
 
     setRadarClosingLoading(true);
 
@@ -932,33 +848,14 @@ export default function AnnualFortunePage() {
         })
       });
 
-      const goodLuckItemsPromise = fetch('/api/annual-fortune-good-luck-items', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider,
-          overviewText,
-          yearSummary,
-          areas: areaResults.map((r) => ({
-            areaName: r.areaName,
-            hookSentece: r.hookSentece,
-            content: r.content,
-            summaryHighlight: r.summaryHighlight
-          }))
-        })
-      });
-
-      const [radarRes, closingRes, goodLuckItemsRes] = await Promise.all([
+      const [radarRes, closingRes] = await Promise.all([
         radarPromise,
-        closingPromise,
-        goodLuckItemsPromise
+        closingPromise
       ]);
       const radarData = await radarRes.json();
       const closingData = await closingRes.json();
-      const goodLuckItemsData = await goodLuckItemsRes.json();
       const radarEnd = Date.now();
       const closingEnd = Date.now();
-      const goodLuckItemsEnd = Date.now();
 
       if (!radarData.ok) {
         alert('领域雷达图评分失败：' + radarData.error);
@@ -980,14 +877,6 @@ export default function AnnualFortunePage() {
         setClosingResult(closingData.result || null);
         setClosingElapsedTime(closingData.elapsedTime || (closingEnd - closingStart));
         setClosingTimeStats(closingData.timeStats || null);
-      }
-
-      if (!goodLuckItemsData.ok) {
-        alert('玄学指引好物生成失败：' + goodLuckItemsData.error);
-      } else {
-        setGoodLuckItemsResult(goodLuckItemsData.result || null);
-        setGoodLuckItemsElapsedTime(goodLuckItemsData.elapsedTime || (goodLuckItemsEnd - goodLuckItemsStart));
-        setGoodLuckItemsTimeStats(goodLuckItemsData.timeStats || null);
       }
       setRadarClosingTotalTime(Date.now() - overallStart);
     } catch (err: any) {
@@ -1957,43 +1846,6 @@ export default function AnnualFortunePage() {
                   )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {/* 玄学指引好物（放在年度总结语之前） */}
-          {goodLuckItemsResult && (
-            <div style={{ marginTop: 20, padding: 16, borderRadius: 8, border: '1px solid #ab47bc', background: '#f3e5f5' }}>
-              <h3 style={{ fontSize: 16, marginBottom: 8, color: '#6a1b9a' }}>🔮 玄学指引好物</h3>
-              <div
-                style={{
-                  fontSize: 15,
-                  color: '#4a148c',
-                  marginBottom: 8,
-                  whiteSpace: 'pre-wrap',
-                  fontWeight: 600
-                }}
-              >
-                {goodLuckItemsResult.goodLuckItem}
-              </div>
-              {(() => {
-                const meta = GOOD_LUCK_ITEMS_META[goodLuckItemsResult.goodLuckItem];
-                return meta ? (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontSize: 13, color: '#6a1b9a', marginBottom: 4 }}>{meta.tags}</div>
-                    <div style={{ fontSize: 13, color: '#4a148c', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
-                      {meta.blessing}
-                    </div>
-                  </div>
-                ) : null;
-              })()}
-              <div style={{ fontSize: 14, color: '#4a148c', marginBottom: 12, whiteSpace: 'pre-wrap', lineHeight: 1.6, fontWeight: 600 }}>
-                {goodLuckItemsResult.analysis}
-              </div>
-              {goodLuckItemsElapsedTime !== null && (
-                <div style={{ marginTop: 8, fontSize: 12, color: '#6a1b9a' }}>
-                  ⏱️ 玄学指引好物生成耗时：{(goodLuckItemsElapsedTime / 1000).toFixed(2)} 秒
-                </div>
-              )}
             </div>
           )}
 

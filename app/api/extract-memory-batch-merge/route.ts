@@ -61,9 +61,72 @@ function parseStage1Output(text: string): string {
   return text.trim();
 }
 
+// 清理 Stage1 facts：去掉小标题，并根据规则过滤内容
+function cleanFacts(facts: string): string {
+  // 先去掉 "# facts" 标题行（如果存在）
+  let cleanedFacts = facts.replace(/^#\s*facts\s*\n/i, '').trim();
+
+  // 按 ## 开头的行分割成段落
+  const sections = cleanedFacts.split(/(?=##\s*用户)/);
+
+  const processedSections = sections
+    .map(section => {
+      const trimmed = section.trim();
+      if (!trimmed) return null;
+
+      // 检查是否是"用户自身内容"段落
+      if (trimmed.includes('## 用户自身内容')) {
+        // 如果包含"未提及"，则跳过整个段落
+        if (trimmed.includes('未提及') && trimmed.includes('此部分为空')) {
+          return null;
+        }
+      }
+
+      // 移除 ## 开头的标题行，保留内容
+      const lines = trimmed.split('\n');
+      const contentLines = lines.filter(line => !line.trim().startsWith('##'));
+      const content = contentLines.join('\n').trim();
+
+      return content || null;
+    })
+    .filter(Boolean);
+
+  return processedSections.join('\n\n').trim();
+}
+
+// 清理 XML 格式的 Stage1 facts
+function cleanFactsXml(facts: string): string {
+  // 提取 <facts> 标签内容
+  const factsMatch = facts.match(/<facts>([\s\S]*?)<\/facts>/i);
+  if (!factsMatch) {
+    return facts.trim(); // 如果没有 facts 标签，返回原文
+  }
+
+  const factsContent = factsMatch[1];
+  const parts: string[] = [];
+
+  // 提取 personRelatedContent
+  const personMatch = factsContent.match(/<personRelatedContent>([\s\S]*?)<\/personRelatedContent>/i);
+  if (personMatch && personMatch[1].trim()) {
+    parts.push(personMatch[1].trim());
+  }
+
+  // 提取 userSelfContent（跳过"未提及"的情况）
+  const selfMatch = factsContent.match(/<userSelfContent>([\s\S]*?)<\/userSelfContent>/i);
+  if (selfMatch && selfMatch[1].trim()) {
+    const selfContent = selfMatch[1].trim();
+    if (!selfContent.includes('未提及') || !selfContent.includes('此部分为空')) {
+      parts.push(selfContent);
+    }
+  }
+
+  return parts.join('\n\n').trim();
+}
+
 // 读取 Stage 1 记忆文件
 function readStage1Memories(
-  provided?: Array<{ round?: number; summary: string }>
+  provided?: Array<{ round?: number; summary: string }>,
+  format: "markdown" | "xml" = "markdown"
 ): Array<{ round: number; content: string; filePath: string }> {
   if (provided && provided.length > 0) {
     return provided.map((item, idx) => ({
@@ -73,10 +136,14 @@ function readStage1Memories(
     }));
   }
 
-  const stage1Dir = path.join(process.cwd(), "data", "extracted_memories_stage1_only");
-  
+  // 根据 format 选择目录
+  const dirName = format === "xml"
+    ? "extracted_memories_stage1_only_xml"
+    : "extracted_memories_stage1_only";
+  const stage1Dir = path.join(process.cwd(), "data", dirName);
+
   if (!fs.existsSync(stage1Dir)) {
-    throw new Error("Stage 1 记忆文件夹不存在，请先运行「仅提取 Stage 1」");
+    throw new Error(`Stage 1 记忆文件夹不存在（${dirName}），请先运行「仅提取 Stage 1」`);
   }
 
   // 读取所有 .md 文件（排除 prompt 文件）
@@ -90,7 +157,7 @@ function readStage1Memories(
     });
 
   if (files.length === 0) {
-    throw new Error("Stage 1 记忆文件夹中没有找到记忆文件");
+    throw new Error(`Stage 1 记忆文件夹中没有找到记忆文件（${dirName}）`);
   }
 
   const memories: Array<{ round: number; content: string; filePath: string }> = [];
@@ -100,10 +167,11 @@ function readStage1Memories(
     const content = fs.readFileSync(filePath, "utf-8");
     const roundMatch = file.match(/round_(\d+)_/);
     const round = roundMatch ? parseInt(roundMatch[1]) : 0;
-    
-    // 解析 Stage 1 输出，提取 facts
-    const facts = parseStage1Output(content);
-    
+
+    // 对于 XML 格式，直接返回原始内容（cleanFactsXml 会在后续处理）
+    // 对于 markdown 格式，使用 parseStage1Output 提取 facts
+    const facts = format === "xml" ? content : parseStage1Output(content);
+
     memories.push({
       round,
       content: facts,
@@ -125,7 +193,37 @@ function getSimulatedDate(batchIndex: number): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   
-  return `${year}年${month}月${day}日`;
+  // 添加星期几
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[date.getDay()];
+  
+  return `${year}年${month}月${day}日 ${weekday}`;
+}
+
+// 计算旧事实发生的时间（timeInfo 减去一天）
+function getOldTimeInfo(timeInfo: string): string {
+  // 从 timeInfo 中提取日期信息（格式：YYYY年MM月DD日 星期X）
+  const match = timeInfo.match(/(\d{4})年(\d{2})月(\d{2})日/);
+  if (!match) {
+    return "（无法解析日期）";
+  }
+  
+  const year = parseInt(match[1]);
+  const month = parseInt(match[2]) - 1; // Date 对象月份从0开始
+  const day = parseInt(match[3]);
+  
+  const date = new Date(year, month, day);
+  date.setDate(date.getDate() - 1); // 减去一天
+  
+  const oldYear = date.getFullYear();
+  const oldMonth = String(date.getMonth() + 1).padStart(2, '0');
+  const oldDay = String(date.getDate()).padStart(2, '0');
+  
+  // 添加星期几
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[date.getDay()];
+  
+  return `${oldYear}年${oldMonth}月${oldDay}日 ${weekday}`;
 }
 
 // 设置路由配置
@@ -138,20 +236,24 @@ export async function POST(req: Request) {
   
   try {
     const body = await req.json();
-    const { provider = "openai", stage1Summaries, saveToFile, oldGlobalMemory: initialGlobalMemory } = body as {
+    const { provider = "openai", stage1Summaries, saveToFile, oldGlobalMemory: initialGlobalMemory, format = "markdown" } = body as {
       provider?: "openai" | "deepseek";
       stage1Summaries?: Array<{ round?: number; summary: string }>;
       saveToFile?: boolean;
       oldGlobalMemory?: string;
+      format?: "markdown" | "xml";
     };
     const shouldSave = saveToFile ?? true;
     let globalMemoryCarry = initialGlobalMemory ?? "";
-    
-    console.log(`[Batch Merge Memory] 使用模型提供方: ${provider}`);
+
+    // 根据 format 选择清理函数
+    const cleanFunc = format === "xml" ? cleanFactsXml : cleanFacts;
+
+    console.log(`[Batch Merge Memory] 使用模型提供方: ${provider}, 格式: ${format}`);
 
     // 1. 读取所有 Stage 1 记忆文件
     console.log(`[Batch Merge Memory] 读取 Stage 1 记忆文件...`);
-    const stage1Memories = readStage1Memories(stage1Summaries);
+    const stage1Memories = readStage1Memories(stage1Summaries, format);
     console.log(`[Batch Merge Memory] 找到 ${stage1Memories.length} 个 Stage 1 记忆`);
 
     if (stage1Memories.length === 0) {
@@ -171,7 +273,7 @@ export async function POST(req: Request) {
     // 4. 准备保存目录（可选）
     let outputDir = "";
     if (shouldSave) {
-      outputDir = path.join(process.cwd(), "data", "extracted_memories_batch_merge");
+      outputDir = path.join(process.cwd(), "data", "extracted_memories_batch_merge_xml");
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
       }
@@ -205,12 +307,21 @@ export async function POST(req: Request) {
 
       // 合并这一批的 Stage 1 记忆
       const batchFacts = batchMemories
-        .map((m, idx) => `### 记忆 ${m.round}（第 ${startIdx + idx + 1} 个）\n${m.content}`)
+        .map((m, idx) => {
+          const cleanedFacts = cleanFunc(m.content);
+          if (!cleanedFacts) return null;
+          return `### 记忆 ${m.round}（第 ${startIdx + idx + 1} 个）\n${cleanedFacts}`;
+        })
+        .filter(Boolean)
         .join('\n\n');
 
+      // 计算旧事实发生的时间（新事实时间减去一天）
+      const oldTimeInfo = getOldTimeInfo(simulatedDate);
+      
       // 构建 Stage 2 prompt
       const stage2Prompt = replacePlaceholders(stage2Template, {
         old: oldGlobalMemory || "（无旧记忆）",
+        oldTimeInfo: oldTimeInfo,
         facts: batchFacts,
         timeInfo: simulatedDate
       });
@@ -258,8 +369,8 @@ export async function POST(req: Request) {
         fs.writeFileSync(stage2PromptFilePath, stage2Prompt, "utf-8");
         console.log(`[Batch Merge Memory] 第 ${batch} 批 Stage 2 Prompt 已保存到: ${stage2PromptFilePath}`);
 
-        savedStage2Path = `data/extracted_memories_batch_merge/${stage2FileName}`;
-        savedStage2PromptPath = `data/extracted_memories_batch_merge/${stage2PromptFileName}`;
+        savedStage2Path = `data/extracted_memories_batch_merge_xml/${stage2FileName}`;
+        savedStage2PromptPath = `data/extracted_memories_batch_merge_xml/${stage2PromptFileName}`;
       }
 
       results.push({

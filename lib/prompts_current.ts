@@ -24,9 +24,9 @@ export interface Stage1XmlParams {
 
 /**
  * Stage 1 XML 格式提取 Prompt
- * 用于从对话中提取事实性记忆，输出 XML 格式
+ * 用于从对话中提取事实性记忆，输出 XML 格式，只有 Facts
  */
-export const EXTRACT_MEMORY_STAGE1_XML_PROMPT = `
+export const EXTRACT_MEMORY_STAGE1_XML_PROMPT_OnlyFacts = `
 请你帮我从这段对话中提取出值得被记住的关于用户的部分，放进 facts 里。facts 上限为2000字。
 
 注意，塔罗师说的内容可能不是事实，只有用户说的内容才是事实。
@@ -35,9 +35,6 @@ facts 只存入用户口述的事实，而不存塔罗师说的内容，不要�
 
 facts 结构分为两块。第一块是 personRelatedContent，代表用户涉及某个/几个具体人物的内容，重点关注用户和这个人物间发生的具体事件。
 第二块是仅仅有关用户自身的内容userSelfContent。可以为空，不要做出揣测。如果为空则写一句话：未提及与具体人物无关的自身情况，此部分为空。
-
-topic area 存入 感情/事业/学业/生活/运势/决策/自我成长 中的一个。
-topic summary 存入10个字的具体内容，比如用户这次关心的主题，以及用户关心的人物名等。topic 简单一句话即可。
 
 请你不要做揣测，而只记录事实。
 如果提及不同的人物，需要在 fact 中另开一段。
@@ -52,13 +49,26 @@ topic summary 存入10个字的具体内容，比如用户这次关心的主题�
 </userSelfContent>
 </facts>
 
-<topicArea>...</topicArea>
-
-<topicSummary>...</topicSummary>
-
 对话内容：
 {{this_session_raw}}
 `;
+
+/**
+ * 第二轮分析称呼的 Prompt
+ * 用于在提取 facts 后，分析 personRelatedContent 是否有明确称呼
+ */
+export const ANALYZE_NAME_PROMPT = `请你根据上述输出帮我分析 personRelatedContent 的部分是否有明确称呼。
+
+判断标准：如果是只有代词称呼比如"她/他/Ta"，则分析为 False。如果是明确提到其他代称，即使不是确切的名字，则分析为 True。
+
+请输出：
+<analysisIfHasOtherName>
+分析 personRelatedContent 的部分是否有明确称呼。
+</analysisIfHasOtherName>
+
+<ifHasOtherName>
+是否有明确称呼。为 True 或 False。
+</ifHasOtherName>`;
 
 /**
  * 上月记忆压缩 Prompt

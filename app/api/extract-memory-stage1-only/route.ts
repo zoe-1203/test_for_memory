@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import { EXTRACT_MEMORY_STAGE1_PROMPT } from "@/lib/prompts_memory";
-import { EXTRACT_MEMORY_STAGE1_XML_PROMPT, replacePlaceholders } from "@/lib/prompts_current";
+import { EXTRACT_MEMORY_STAGE1_XML_PROMPT_OnlyFacts, replacePlaceholders } from "@/lib/prompts_current";
 
 // 兼容 openai / deepseek
 function getClient(provider: "openai" | "deepseek") {
@@ -25,7 +25,7 @@ function getModel(provider: "openai" | "deepseek") {
 // 获取 Prompt
 function loadPromptTemplate(yamlFileName: string): string {
   if (yamlFileName === "extract_memory_stage1.yaml") return EXTRACT_MEMORY_STAGE1_PROMPT.trim();
-  if (yamlFileName === "extract_memory_stage1_xml.yaml") return EXTRACT_MEMORY_STAGE1_XML_PROMPT.trim();
+  if (yamlFileName === "extract_memory_stage1_xml.yaml") return EXTRACT_MEMORY_STAGE1_XML_PROMPT_OnlyFacts.trim();
   throw new Error(`未知的 prompt 文件: ${yamlFileName}`);
 }
 

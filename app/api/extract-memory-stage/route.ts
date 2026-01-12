@@ -41,12 +41,88 @@ function replacePlaceholders(
   return result;
 }
 
-// 格式化日期为 “YYYY年MM月DD日”
+// 格式化日期为 “YYYY年MM月DD日 星期X”
 function formatDateYMD(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${year}年${month}月${day}日`;
+  
+  // 添加星期几
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[date.getDay()];
+  
+  return `${year}年${month}月${day}日 ${weekday}`;
+}
+
+// 计算旧事实发生的时间（timeInfo 减去一天）
+function getOldTimeInfo(timeInfo: string): string {
+  // 从 timeInfo 中提取日期信息（格式：YYYY年MM月DD日 星期X）
+  const match = timeInfo.match(/(\d{4})年(\d{2})月(\d{2})日/);
+  if (!match) {
+    return "（无法解析日期）";
+  }
+  
+  const year = parseInt(match[1]);
+  const month = parseInt(match[2]) - 1; // Date 对象月份从0开始
+  const day = parseInt(match[3]);
+  
+  const date = new Date(year, month, day);
+  date.setDate(date.getDate() - 1); // 减去一天
+  
+  const oldYear = date.getFullYear();
+  const oldMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const oldDay = String(date.getDate()).padStart(2, "0");
+  
+  // 添加星期几
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const weekday = weekdays[date.getDay()];
+  
+  return `${oldYear}年${oldMonth}月${oldDay}日 ${weekday}`;
+}
+
+// 截断塔罗师第一次回复的第一个自然段
+function truncateFirstTarotReply(session: string): string {
+  // 找到"用户问："后面的"塔罗师回："
+  const tarotReplyStart = session.indexOf('塔罗师回："');
+  if (tarotReplyStart === -1) {
+    return session; // 如果没有找到，返回原内容
+  }
+  
+  const quoteStart = tarotReplyStart + '塔罗师回："'.length;
+  const replyContent = session.substring(quoteStart);
+  
+  // 找到第一个自然段（到第一个换行符）
+  const firstNewlineIndex = replyContent.indexOf('\n');
+  if (firstNewlineIndex === -1) {
+    return session; // 如果没有换行符，返回原内容
+  }
+  
+  // 找到第一个自然段
+  const firstParagraph = replyContent.substring(0, firstNewlineIndex);
+  
+  // 找到整个回复的结束引号（应该在---分隔符之前或文件末尾）
+  const afterFirstParagraph = replyContent.substring(firstNewlineIndex);
+  const separatorIndex = afterFirstParagraph.indexOf('\n---');
+  const searchEnd = separatorIndex !== -1 ? firstNewlineIndex + separatorIndex : replyContent.length;
+  
+  // 在搜索范围内找到最后一个引号
+  let endQuoteIndex = -1;
+  for (let i = searchEnd - 1; i >= firstNewlineIndex; i--) {
+    if (replyContent[i] === '"') {
+      endQuoteIndex = i;
+      break;
+    }
+  }
+  
+  if (endQuoteIndex === -1) {
+    return session; // 如果没有找到结束引号，返回原内容
+  }
+  
+  // 构建替换后的内容：保留第一个自然段，删除中间的内容
+  const beforeReply = session.substring(0, quoteStart);
+  const afterReply = replyContent.substring(endQuoteIndex + 1);
+  
+  return beforeReply + firstParagraph + '"' + afterReply;
 }
 
 // 解析对话文件，按 === 分割
@@ -64,7 +140,8 @@ function parseDialogueFile(): string[] {
   const sessions = content
     .split(/^===\s*$/m)
     .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .filter(s => s.length > 0)
+    .map(s => truncateFirstTarotReply(s)); // 应用截断函数
   
   return sessions;
 }
@@ -89,6 +166,39 @@ function parseStage2Output(text: string): string {
   }
   // 如果没有找到，返回整个文本
   return text.trim();
+}
+
+// 清理 Stage1 facts：去掉小标题，并根据规则过滤内容
+function cleanFacts(facts: string): string {
+  // 先去掉 "# facts" 标题行（如果存在）
+  let cleanedFacts = facts.replace(/^#\s*facts\s*\n/i, '').trim();
+
+  // 按 ## 开头的行分割成段落
+  const sections = cleanedFacts.split(/(?=##\s*用户)/);
+
+  const processedSections = sections
+    .map(section => {
+      const trimmed = section.trim();
+      if (!trimmed) return null;
+
+      // 检查是否是"用户自身内容"段落
+      if (trimmed.includes('## 用户自身内容')) {
+        // 如果包含"未提及"，则跳过整个段落
+        if (trimmed.includes('未提及') && trimmed.includes('此部分为空')) {
+          return null;
+        }
+      }
+
+      // 移除 ## 开头的标题行，保留内容
+      const lines = trimmed.split('\n');
+      const contentLines = lines.filter(line => !line.trim().startsWith('##'));
+      const content = contentLines.join('\n').trim();
+
+      return content || null;
+    })
+    .filter(Boolean);
+
+  return processedSections.join('\n\n').trim();
 }
 
 // 设置路由配置
@@ -126,7 +236,7 @@ export async function POST(req: Request) {
     const model = getModel(provider);
 
     // 4. 准备保存目录
-    const outputDir = path.join(process.cwd(), "data", "extracted_memories_stage");
+    const outputDir = path.join(process.cwd(), "data", "extracted_memories_batch_merge_xml");
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
@@ -187,6 +297,7 @@ export async function POST(req: Request) {
 
       const stage1ResponseText = stage1Response.choices[0]?.message?.content || "";
       const stage1Summary = parseStage1Output(stage1ResponseText);
+      const stage1CleanedFacts = cleanFacts(stage1Summary);
       console.log(`[Extract Memory Stage] 第 ${round} 轮 Stage 1：提取摘要完成`);
 
       // ===== Stage 2: 合并到全局记忆（从第2轮开始） =====
@@ -195,16 +306,21 @@ export async function POST(req: Request) {
       let stage2Prompt = "";
 
       if (round === 1) {
-        // 第1轮：stage2 结果就是 stage1 的结果
-        stage2GlobalMemory = stage1Summary;
+        // 第1轮：stage2 结果就是 stage1 的结果（已清理）
+        stage2GlobalMemory = stage1CleanedFacts;
         stage2RawOutput = stage1ResponseText;
         console.log(`[Extract Memory Stage] 第 ${round} 轮：第1轮，Stage 2 使用 Stage 1 的结果`);
       } else {
         // 第2轮开始：使用 stage2 合并
         console.log(`[Extract Memory Stage] 第 ${round} 轮：开始 Stage 2...`);
+
+        // 计算旧事实发生的时间（新事实时间减去一天）
+        const oldTimeInfo = getOldTimeInfo(todayStr);
+
         stage2Prompt = replacePlaceholders(stage2Template, {
           old: oldGlobalMemory,
-          facts: stage1Summary,
+          oldTimeInfo: oldTimeInfo,
+          facts: stage1CleanedFacts,
           timeInfo: todayStr
         });
 
@@ -260,10 +376,10 @@ export async function POST(req: Request) {
       }
 
       // 保存结果
-      const relativeStage1Path = `data/extracted_memories_stage/${stage1FileName}`;
-      const relativeStage2Path = `data/extracted_memories_stage/${stage2FileName}`;
-      const relativeStage1PromptPath = `data/extracted_memories_stage/${stage1PromptFileName}`;
-      const relativeStage2PromptPath = round > 1 ? `data/extracted_memories_stage/round_${round}_${timestamp}_stage2_prompt.txt` : undefined;
+      const relativeStage1Path = `data/extracted_memories_batch_merge_xml/${stage1FileName}`;
+      const relativeStage2Path = `data/extracted_memories_batch_merge_xml/${stage2FileName}`;
+      const relativeStage1PromptPath = `data/extracted_memories_batch_merge_xml/${stage1PromptFileName}`;
+      const relativeStage2PromptPath = round > 1 ? `data/extracted_memories_batch_merge_xml/round_${round}_${timestamp}_stage2_prompt.txt` : undefined;
 
       results.push({
         round,

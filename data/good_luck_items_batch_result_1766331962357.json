@@ -1,0 +1,100 @@
+{
+  "inputPath": "data/年运整个结果1.0",
+  "totalFiles": 7,
+  "successCount": 7,
+  "failCount": 0,
+  "provider": "deepseek",
+  "timestamp": "2025-12-21T15:46:02.357Z",
+  "distribution": {
+    "白水晶": {
+      "count": 0,
+      "probability": 0
+    },
+    "粉水晶": {
+      "count": 1,
+      "probability": 14.29
+    },
+    "黑曜石": {
+      "count": 4,
+      "probability": 57.14
+    },
+    "黄水晶": {
+      "count": 0,
+      "probability": 0
+    },
+    "香薰蜡烛": {
+      "count": 0,
+      "probability": 0
+    },
+    "扩香石": {
+      "count": 1,
+      "probability": 14.29
+    },
+    "鼠尾草": {
+      "count": 0,
+      "probability": 0
+    },
+    "干花香囊": {
+      "count": 0,
+      "probability": 0
+    },
+    "捕梦网": {
+      "count": 0,
+      "probability": 0
+    },
+    "多肉植物": {
+      "count": 1,
+      "probability": 14.29
+    },
+    "幸运御守": {
+      "count": 0,
+      "probability": 0
+    }
+  },
+  "allResults": [
+    "粉水晶",
+    "黑曜石",
+    "扩香石",
+    "黑曜石",
+    "黑曜石",
+    "黑曜石",
+    "多肉植物"
+  ],
+  "fileResults": [
+    {
+      "file": "年运-初高中单身不想谈女.txt",
+      "status": "success",
+      "item": "粉水晶"
+    },
+    {
+      "file": "年运-初高中单身想恋爱女.txt",
+      "status": "success",
+      "item": "黑曜石"
+    },
+    {
+      "file": "年运-初高中单身想谈女-修改领域开头和总结尾版.txt",
+      "status": "success",
+      "item": "扩香石"
+    },
+    {
+      "file": "年运-初高中单身想谈男.txt",
+      "status": "success",
+      "item": "黑曜石"
+    },
+    {
+      "file": "年运-大学恋爱中女.txt",
+      "status": "success",
+      "item": "黑曜石"
+    },
+    {
+      "file": "年运-大学恋爱中男.txt",
+      "status": "success",
+      "item": "黑曜石"
+    },
+    {
+      "file": "年运-职场已婚女.txt",
+      "status": "success",
+      "item": "多肉植物"
+    }
+  ]
+}
