@@ -32,8 +32,8 @@ function getCachedClient(provider: "openai" | "deepseek" | "anthropic-haiku" | "
 
 function getModel(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): string {
   if (provider === "openai") return "gpt-4o-mini";
-  if (provider === "anthropic-haiku") return "claude-haiku-4-5";
-  if (provider === "anthropic-sonnet") return "claude-sonnet-4-5";
+  if (provider === "anthropic-haiku") return "claude-haiku-4-5-20251001";
+  if (provider === "anthropic-sonnet") return "claude-sonnet-4-5-20250929";
   return "deepseek-chat";
 }
 

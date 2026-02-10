@@ -1,0 +1,6 @@
+# Prompt 日志文件（仅用于本地调试）
+data/annual_fortune_prompts/
+
+# 环境变量文件（不应部署）
+.env.local
+.env.vercel.local
