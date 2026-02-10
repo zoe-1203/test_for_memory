@@ -1,19 +1,27 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
-import { tarotCardMeanings } from "@/data/tarot_card_meanings_cleanWord";
-import { getAnnualFortuneAreaPrompt, LLM_TEMPERATURES } from "@/lib/prompts";
+import { tarotCards } from "@/app/new_prompts_from_hou/cards";
+import { LLM_TEMPERATURES } from "@/lib/prompts";
+import { annualForecast2026AreaPrompt } from "@/app/new_prompts_from_hou/annual-forecast-2026/prompt";
+
+type Lang = 'cn' | 'tc' | 'en' | 'ja' | 'ko' | 'es';
 
 // ========== 连接池复用：模块级 Client 缓存 ==========
-const clientCache = new Map<"openai" | "deepseek", OpenAI>();
+const clientCache = new Map<"openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet", OpenAI | Anthropic>();
 
-function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
+function getCachedClient(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): OpenAI | Anthropic {
   if (!clientCache.has(provider)) {
     if (provider === "openai") {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
       clientCache.set(provider, new OpenAI({ apiKey }));
+    } else if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY");
+      clientCache.set(provider, new Anthropic({ apiKey }));
     } else {
       const apiKey = process.env.DEEPSEEK_API_KEY;
       if (!apiKey) throw new Error("Missing DEEPSEEK_API_KEY");
@@ -24,8 +32,11 @@ function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
   return clientCache.get(provider)!;
 }
 
-function getModel(provider: "openai" | "deepseek"): string {
-  return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
+function getModel(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): string {
+  if (provider === "openai") return "gpt-4o-mini";
+  if (provider === "anthropic-haiku") return "claude-haiku-4-5";
+  if (provider === "anthropic-sonnet") return "claude-sonnet-4-5";
+  return "deepseek-chat";
 }
 
 type AreaId = "love" | "career" | "wealth" | "health" | "relationship" | "innerGrowth";
@@ -39,14 +50,17 @@ type AreaCardInput = {
   reversed: boolean;
 };
 
-function findCardInfo(card: { id: string; name: string; cnName: string }): string {
-  const matchById = tarotCardMeanings.find((tc) => {
-    const m = tc.cnName.match(/^(\d+)\s+(.+)$/);
-    const id = m ? m[1] : "";
-    const name = m ? m[2] : tc.cnName;
-    return id === card.id || name === card.name || tc.cnName === card.cnName;
-  });
-  return matchById?.cardInfo || "";
+function findCardInfo(card: { id: string; name: string; cnName: string }, lang: Lang = 'cn'): string {
+  const matchById = tarotCards.find((tc) =>
+    tc.key === card.id || tc.cnName === card.cnName || tc.enName === card.name
+  );
+
+  if (!matchById) return "";
+
+  // 根据语言返回对应的牌意
+  // ja/ko/es 使用英文牌意（匹配英文 Prompt）
+  const isEnglishBased = lang === 'en' || lang === 'ja' || lang === 'ko' || lang === 'es';
+  return isEnglishBased ? (matchById.en || matchById.cn) : matchById.cn;
 }
 
 export async function POST(req: Request) {
@@ -54,9 +68,10 @@ export async function POST(req: Request) {
   const timeStats = {
     total: 0,
     preparation: 0,
-    networkRequests: [] as Array<{ areaId: AreaId; startTime: number; endTime: number; duration: number }>,
+    networkRequests: [] as Array<{ areaId: AreaId; startTime: number; endTime: number; duration: number; tokens?: { prompt: number; completion: number; total: number } }>,
     totalNetworkTime: 0,
-    parsing: 0
+    parsing: 0,
+    totalTokens: { prompt: 0, completion: 0, total: 0 }
   };
 
   try {
@@ -64,6 +79,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       provider = "openai",
+      language = "cn",
       areaCards,
       nickName,
       careerStatus,
@@ -71,9 +87,11 @@ export async function POST(req: Request) {
       loveStatus,
       careerStatusLabel,
       genderLabel,
-      loveStatusLabel
+      loveStatusLabel,
+      includeRawData = false // 新增：是否返回原始 prompts 和 responses
     } = body as {
-      provider?: "openai" | "deepseek";
+      provider?: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet";
+      language?: Lang;
       areaCards: AreaCardInput[];
       nickName?: string;
       careerStatus?: string;
@@ -82,6 +100,7 @@ export async function POST(req: Request) {
       careerStatusLabel?: string;
       genderLabel?: string;
       loveStatusLabel?: string;
+      includeRawData?: boolean; // 新增
     };
 
     if (!Array.isArray(areaCards) || areaCards.length !== 6) {
@@ -102,9 +121,11 @@ export async function POST(req: Request) {
     timeStats.preparation = prepEnd - prepStart;
 
     const promptsToSave: Array<{ areaId: AreaId; areaName: string; prompt: string }> = [];
+    // 新增：存储原始数据用于返回给前端
+    const rawDataCollection: Array<{ areaId: AreaId; areaName: string; prompt: string; rawResponse: string }> = [];
 
     const areaPromises = areaCards.map(async (card) => {
-      const cardInfo = findCardInfo(card);
+      const cardInfo = findCardInfo(card, language);
       const cardContent = cardInfo || "（未找到对应牌意信息）";
 
       // 根据身份类型动态调整「事业·学业」在 Prompt 中的文案：
@@ -113,54 +134,95 @@ export async function POST(req: Request) {
       // - 其他情况：保持原有 areaName（通常是「事业·学业」）
       let areaForPrompt = card.areaName;
       if (card.areaId === "career") {
-        if (careerStatus === "middle_high_school" || careerStatus === "college_above") {
-          areaForPrompt = "学业";
-        } else if (careerStatus === "worker" || careerStatus === "freelance") {
-          areaForPrompt = "事业";
+        if (language === 'en') {
+          areaForPrompt = (careerStatus === "middle_high_school" || careerStatus === "college_above") ? "Studies" : "Career";
+        } else if (language === 'tc') {
+          areaForPrompt = (careerStatus === "middle_high_school" || careerStatus === "college_above") ? "學業" : "事業";
+        } else {
+          areaForPrompt = (careerStatus === "middle_high_school" || careerStatus === "college_above") ? "学业" : "事业";
         }
       }
 
-      const prompt = getAnnualFortuneAreaPrompt({
+      const prompt = annualForecast2026AreaPrompt[language]({
+        uid: '',
+        lang: language,
+        question: '',
+        history: '',
         area: areaForPrompt,
         cardContent,
-        nickName,
-        careerStatus,
-        gender,
-        loveStatus
+        userInfo: {
+          nickname: nickName,
+          gender,
+          careerStatus,
+          loveStatus
+        }
       });
 
       promptsToSave.push({ areaId: card.areaId, areaName: card.areaName, prompt });
 
       const requestStart = Date.now();
       try {
-        const requestOptions: any = {
-          model,
-          temperature: LLM_TEMPERATURES.annualArea,
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ]
-        };
+        let rawContent: string;
+        let tokenUsage: { prompt: number; completion: number; total: number } | undefined;
 
-        if (provider === "openai") {
-          requestOptions.response_format = { type: "json_object" };
+        if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+          // Anthropic API 调用
+          const anthropicClient = client as Anthropic;
+          const response = await anthropicClient.messages.create({
+            model,
+            max_tokens: 4096,
+            temperature: LLM_TEMPERATURES.annualArea,
+            messages: [{ role: "user", content: prompt }]
+          });
+
+          rawContent = response.content[0].type === 'text' ? response.content[0].text : "{}";
+
+          tokenUsage = {
+            prompt: response.usage.input_tokens,
+            completion: response.usage.output_tokens,
+            total: response.usage.input_tokens + response.usage.output_tokens
+          };
+        } else {
+          // OpenAI/DeepSeek API 调用
+          const openaiClient = client as OpenAI;
+          const requestOptions: any = {
+            model,
+            temperature: LLM_TEMPERATURES.annualArea,
+            messages: [{ role: "user", content: prompt }]
+          };
+
+          if (provider === "openai") {
+            requestOptions.response_format = { type: "json_object" };
+          }
+
+          const response = await openaiClient.chat.completions.create(requestOptions);
+          rawContent = response.choices[0]?.message?.content || "{}";
+
+          tokenUsage = response.usage ? {
+            prompt: response.usage.prompt_tokens || 0,
+            completion: response.usage.completion_tokens || 0,
+            total: response.usage.total_tokens || 0
+          } : undefined;
         }
 
-        const response = await client.chat.completions.create(requestOptions);
         const requestEnd = Date.now();
-
         const duration = requestEnd - requestStart;
+
+        if (tokenUsage) {
+          timeStats.totalTokens.prompt += tokenUsage.prompt;
+          timeStats.totalTokens.completion += tokenUsage.completion;
+          timeStats.totalTokens.total += tokenUsage.total;
+        }
+
         timeStats.networkRequests.push({
           areaId: card.areaId,
           startTime: requestStart - startTime,
           endTime: requestEnd - startTime,
-          duration
+          duration,
+          tokens: tokenUsage
         });
 
         const parseStart = Date.now();
-        const rawContent = response.choices[0]?.message?.content || "{}";
         let parsed: any;
 
         try {
@@ -191,6 +253,16 @@ export async function POST(req: Request) {
 
         const parseEnd = Date.now();
         timeStats.parsing += parseEnd - parseStart;
+
+        // 新增：如果需要返回原始数据，保存到集合中
+        if (includeRawData) {
+          rawDataCollection.push({
+            areaId: card.areaId,
+            areaName: card.areaName,
+            prompt,
+            rawResponse: rawContent
+          });
+        }
 
         // 兼容两种写法：hookSentece（老拼写）和 hookSentence（更自然的拼写）
         const hookValue = parsed.hookSentece || parsed.hookSentence || "";
@@ -282,7 +354,9 @@ export async function POST(req: Request) {
       providerUsed: provider,
       results,
       elapsedTime,
-      timeStats
+      timeStats,
+      // 新增：有条件返回原始数据
+      ...(includeRawData && { rawData: rawDataCollection })
     });
   } catch (e: any) {
     console.error("[年度运势领域] API 错误:", e);

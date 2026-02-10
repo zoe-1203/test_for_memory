@@ -1,17 +1,25 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
-import { getAnnualFortuneClosingPrompt, LLM_TEMPERATURES } from "@/lib/prompts";
+import { LLM_TEMPERATURES } from "@/lib/prompts";
+import { annualForecast2026ClosingPrompt } from "@/app/new_prompts_from_hou/annual-forecast-2026/prompt";
 
-const clientCache = new Map<"openai" | "deepseek", OpenAI>();
+type Lang = 'cn' | 'tc' | 'en' | 'ja' | 'ko' | 'es';
 
-function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
+const clientCache = new Map<"openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet", OpenAI | Anthropic>();
+
+function getCachedClient(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): OpenAI | Anthropic {
   if (!clientCache.has(provider)) {
     if (provider === "openai") {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
       clientCache.set(provider, new OpenAI({ apiKey }));
+    } else if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY");
+      clientCache.set(provider, new Anthropic({ apiKey }));
     } else {
       const apiKey = process.env.DEEPSEEK_API_KEY;
       if (!apiKey) throw new Error("Missing DEEPSEEK_API_KEY");
@@ -22,8 +30,11 @@ function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
   return clientCache.get(provider)!;
 }
 
-function getModel(provider: "openai" | "deepseek"): string {
-  return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
+function getModel(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): string {
+  if (provider === "openai") return "gpt-4o-mini";
+  if (provider === "anthropic-haiku") return "claude-haiku-4-5";
+  if (provider === "anthropic-sonnet") return "claude-sonnet-4-5";
+  return "deepseek-chat";
 }
 
 type AreaClosingInput = {
@@ -40,7 +51,8 @@ export async function POST(req: Request) {
     preparation: 0,
     aiApiCall: 0,
     responseParsing: 0,
-    other: 0
+    other: 0,
+    tokens: { prompt: 0, completion: 0, total: 0 }
   };
 
   try {
@@ -48,14 +60,18 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       provider = "openai",
+      language = "cn",
       overviewText,
       yearSummary,
-      areas
+      areas,
+      includeRawData = false // 新增：是否返回原始 prompt 和 response
     } = body as {
-      provider?: "openai" | "deepseek";
+      provider?: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet";
+      language?: Lang;
       overviewText: string;
       yearSummary: string;
       areas: AreaClosingInput[];
+      includeRawData?: boolean; // 新增
     };
 
     if (!overviewText || !yearSummary) {
@@ -66,18 +82,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "需要提供至少一个领域解读" }, { status: 400 });
     }
 
+    const notProvided = language === 'en' ? '(Not provided)' : '（未提供）';
+    const themeLabel = language === 'en' ? 'Theme' : '一句话主命题';
+    const contentLabel = language === 'en' ? 'Content' : '解读内容';
+    const highlightLabel = language === 'en' ? 'Key reminder' : '关键提醒';
+
     const areaInfoText = areas
       .map((a) => {
         return [
           `【${a.areaName}】`,
-          `一句话主命题：${a.hookSentece || "（未提供）"}`,
-          `解读内容：${a.content || "（未提供）"}`,
-          `关键提醒：${a.summaryHighlight || "（未提供）"}`
+          `${themeLabel}：${a.hookSentece || notProvided}`,
+          `${contentLabel}：${a.content || notProvided}`,
+          `${highlightLabel}：${a.summaryHighlight || notProvided}`
         ].join("\n");
       })
       .join("\n\n");
 
-    const prompt = getAnnualFortuneClosingPrompt({
+    const prompt = annualForecast2026ClosingPrompt[language]({
+      uid: '',
+      lang: language,
+      question: '',
+      history: '',
       overviewText,
       yearSummary,
       areaInfoText
@@ -95,28 +120,51 @@ export async function POST(req: Request) {
     const prepEnd = Date.now();
     timeStats.preparation = prepEnd - prepStart;
 
-    const requestOptions: any = {
-      model,
-      temperature: LLM_TEMPERATURES.annualClosing,
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ]
-    };
+    const apiStart = Date.now();
+    let rawContent: string;
 
-    if (provider === "openai") {
-      requestOptions.response_format = { type: "json_object" };
+    if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+      // Anthropic API 调用
+      const anthropicClient = client as Anthropic;
+      const response = await anthropicClient.messages.create({
+        model,
+        max_tokens: 4096,
+        temperature: LLM_TEMPERATURES.annualClosing,
+        messages: [{ role: "user", content: prompt }]
+      });
+
+      rawContent = response.content[0].type === 'text' ? response.content[0].text : "{}";
+
+      timeStats.tokens.prompt = response.usage.input_tokens;
+      timeStats.tokens.completion = response.usage.output_tokens;
+      timeStats.tokens.total = response.usage.input_tokens + response.usage.output_tokens;
+    } else {
+      // OpenAI/DeepSeek API 调用
+      const openaiClient = client as OpenAI;
+      const requestOptions: any = {
+        model,
+        temperature: LLM_TEMPERATURES.annualClosing,
+        messages: [{ role: "user", content: prompt }]
+      };
+
+      if (provider === "openai") {
+        requestOptions.response_format = { type: "json_object" };
+      }
+
+      const response = await openaiClient.chat.completions.create(requestOptions);
+      rawContent = response.choices[0]?.message?.content || "{}";
+
+      if (response.usage) {
+        timeStats.tokens.prompt = response.usage.prompt_tokens || 0;
+        timeStats.tokens.completion = response.usage.completion_tokens || 0;
+        timeStats.tokens.total = response.usage.total_tokens || 0;
+      }
     }
 
-    const apiStart = Date.now();
-    const response = await client.chat.completions.create(requestOptions);
     const apiEnd = Date.now();
     timeStats.aiApiCall = apiEnd - apiStart;
 
     const parseStart = Date.now();
-    const rawContent = response.choices[0]?.message?.content || "{}";
     let result: {
       anchorSentence: string;
       closingParagraph: string;
@@ -163,7 +211,14 @@ export async function POST(req: Request) {
       providerUsed: provider,
       result,
       elapsedTime: timeStats.total,
-      timeStats
+      timeStats,
+      // 新增：有条件返回原始数据
+      ...(includeRawData && {
+        rawData: {
+          prompt,
+          rawResponse: rawContent
+        }
+      })
     });
   } catch (e: any) {
     console.error("[年度运势总结语] API 错误:", e);

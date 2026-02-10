@@ -1,21 +1,52 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
-import { tarotCardMeanings } from "@/data/tarot_card_meanings_cleanWord";
-import { getAnnualFortunePrompt, LLM_TEMPERATURES } from "@/lib/prompts";
+import { tarotCards } from "@/app/new_prompts_from_hou/cards";
+import { LLM_TEMPERATURES } from "@/lib/prompts";
+import { annualForecast2026MonthlyPrompt, MONTH_NAMES } from "@/app/new_prompts_from_hou/annual-forecast-2026/prompt";
+
+// ========== 多语言辅助函数 ==========
+type Lang = 'cn' | 'tc' | 'en' | 'ja' | 'ko' | 'es';
+
+// 获取当前时间信息（多语言）
+function getTimeInfo(lang: Lang): string {
+  const now = new Date();
+  const hour = now.getHours();
+  const month = now.getMonth() + 1;
+  const day = now.getDate();
+
+  // ja/ko/es 使用英文格式（匹配英文 Prompt）
+  const isEnglishBased = lang === 'en' || lang === 'ja' || lang === 'ko' || lang === 'es';
+  if (isEnglishBased) {
+    let period = 'morning';
+    if (hour >= 18) period = 'evening';
+    else if (hour >= 12) period = 'afternoon';
+    return `${MONTH_NAMES.en[month - 1]} ${day}, ${period} ${hour}:00`;
+  }
+
+  let period = '上午';
+  if (hour >= 18) period = '晚上';
+  else if (hour >= 12) period = '下午';
+  return `${month}月${day}日${period}${hour}点`;
+}
 
 // ========== 连接池复用：模块级 Client 缓存 ==========
 // 在模块级别创建 client 缓存，所有请求复用同一个 client 实例
 // 这样可以复用 HTTP keep-alive 连接，减少 TCP/TLS 握手时间
-const clientCache = new Map<'openai' | 'deepseek', OpenAI>();
+const clientCache = new Map<'openai' | 'deepseek' | 'anthropic-haiku' | 'anthropic-sonnet', OpenAI | Anthropic>();
 
-function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
+function getCachedClient(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): OpenAI | Anthropic {
   if (!clientCache.has(provider)) {
     if (provider === "openai") {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
       clientCache.set(provider, new OpenAI({ apiKey }));
+    } else if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY");
+      clientCache.set(provider, new Anthropic({ apiKey }));
     } else {
       const apiKey = process.env.DEEPSEEK_API_KEY;
       if (!apiKey) throw new Error("Missing DEEPSEEK_API_KEY");
@@ -26,35 +57,38 @@ function getCachedClient(provider: "openai" | "deepseek"): OpenAI {
   return clientCache.get(provider)!;
 }
 
-function getModel(provider: "openai" | "deepseek"): string {
-  return provider === "openai" ? "gpt-4o-mini" : "deepseek-chat";
+function getModel(provider: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet"): string {
+  if (provider === "openai") return "gpt-4o-mini";
+  if (provider === "anthropic-haiku") return "claude-haiku-4-5";
+  if (provider === "anthropic-sonnet") return "claude-sonnet-4-5";
+  return "deepseek-chat";
 }
 
 // 抽取12张牌（保证不重复）
-function drawTwelveCards() {
+function drawTwelveCards(lang: Lang = 'cn') {
   const indices = new Set<number>();
-  while (indices.size < 12 && indices.size < tarotCardMeanings.length) {
-    indices.add(Math.floor(Math.random() * tarotCardMeanings.length));
+  while (indices.size < 12 && indices.size < tarotCards.length) {
+    indices.add(Math.floor(Math.random() * tarotCards.length));
   }
 
-  const cards = Array.from(indices).map((idx) => {
+  return Array.from(indices).map((idx) => {
     const reversed = Math.random() < 0.5;
-    const cardData = tarotCardMeanings[idx];
+    const cardData = tarotCards[idx];
 
-    const match = cardData.cnName.match(/^(\d+)\s+(.+)$/);
-    const id = match ? match[1] : String(idx);
-    const name = match ? match[2] : cardData.cnName;
+    // 根据语言选择牌名和牌意
+    // ja/ko/es 使用英文牌意（匹配英文 Prompt）
+    const isEnglishBased = lang === 'en' || lang === 'ja' || lang === 'ko' || lang === 'es';
+    const name = isEnglishBased ? (cardData.enName || cardData.cnName) : cardData.cnName;
+    const cardInfo = isEnglishBased ? (cardData.en || cardData.cn) : cardData.cn;
 
     return {
-      id,
+      id: cardData.key,
       name,
       cnName: cardData.cnName,
-      cardInfo: cardData.cardInfo,
+      cardInfo,
       reversed
     };
   });
-
-  return cards;
 }
 
 export async function POST(req: Request) {
@@ -62,9 +96,10 @@ export async function POST(req: Request) {
   const timeStats = {
     total: 0,
     preparation: 0, // 准备阶段（抽牌、格式化等）
-    networkRequests: [] as Array<{ month: number; startTime: number; endTime: number; duration: number }>,
+    networkRequests: [] as Array<{ month: number; startTime: number; endTime: number; duration: number; tokens?: { prompt: number; completion: number; total: number } }>,
     totalNetworkTime: 0, // 所有网络请求的总时间（并发，所以是最大时间）
-    parsing: 0 // JSON解析时间
+    parsing: 0, // JSON解析时间
+    totalTokens: { prompt: 0, completion: 0, total: 0 } // Token 使用量统计
   };
   
   try {
@@ -72,6 +107,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       provider = "openai",
+      language = "cn",
       cards: providedCards, // 如果前端已经抽好牌，直接使用；否则后端抽取
       nickName,
       careerStatus,
@@ -79,9 +115,11 @@ export async function POST(req: Request) {
       loveStatus,
       careerStatusLabel,
       genderLabel,
-      loveStatusLabel
+      loveStatusLabel,
+      includeRawData = false // 新增：是否返回原始 prompts 和 responses
     } = body as {
-      provider?: "openai" | "deepseek";
+      provider?: "openai" | "deepseek" | "anthropic-haiku" | "anthropic-sonnet";
+      language?: Lang;
       cards?: Array<{ id: string; name: string; reversed: boolean; cnName: string; cardInfo: string }>;
       nickName?: string;
       careerStatus?: string;
@@ -90,6 +128,7 @@ export async function POST(req: Request) {
       careerStatusLabel?: string;
       genderLabel?: string;
       loveStatusLabel?: string;
+      includeRawData?: boolean; // 新增
     };
 
     // 获取缓存的 client（复用连接）
@@ -98,40 +137,34 @@ export async function POST(req: Request) {
 
     // 抽取或使用提供的12张牌
     let cards: ReturnType<typeof drawTwelveCards>;
-    
+
     if (providedCards && providedCards.length === 12) {
       // 如果前端提供了卡牌，需要补充 cardInfo
       cards = providedCards.map(c => {
-        // 从 tarotCardMeanings 中查找对应的 cardInfo
-        const cardData = tarotCardMeanings.find(tc => {
-          const match = tc.cnName.match(/^(\d+)\s+(.+)$/);
-          const id = match ? match[1] : '';
-          const name = match ? match[2] : tc.cnName;
-          return id === c.id || name === c.name || tc.cnName === c.cnName;
-        });
-        
+        // 从 tarotCards 中查找对应的 cardInfo
+        const cardData = tarotCards.find(tc =>
+          tc.key === c.id || tc.cnName === c.cnName || tc.enName === c.name
+        );
+
+        // 根据语言选择牌名和牌意
+        const name = language === 'en' ? (cardData?.enName || c.name) : (cardData?.cnName || c.cnName);
+        const cardInfo = language === 'en' ? (cardData?.en || '') : (cardData?.cn || '');
+
         return {
           id: c.id,
-          name: c.name,
+          name,
           cnName: c.cnName || c.name,
-          cardInfo: c.cardInfo || cardData?.cardInfo || '',
+          cardInfo: c.cardInfo || cardInfo || '（未找到对应牌意信息）',
           reversed: c.reversed
         };
       });
     } else {
-      cards = drawTwelveCards();
+      cards = drawTwelveCards(language);
     }
 
-    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    const monthNames = MONTH_NAMES[language];
     // 当前时间信息（用于 Prompt）
-    const now = new Date();
-    const hour = now.getHours();
-    let period = "上午";
-    if (hour >= 18) period = "晚上";
-    else if (hour >= 12) period = "下午";
-    const month = now.getMonth() + 1;
-    const day = now.getDate();
-    const timeInfo = `${month}月${day}日${period}${hour}点`;
+    const timeInfo = getTimeInfo(language);
 
 
     // 准备保存 Prompt 文件的目录和时间戳（在时间统计之外准备）
@@ -148,33 +181,48 @@ export async function POST(req: Request) {
 
     // 存储所有 prompts，用于后续异步保存（不阻塞主流程）
     const promptsToSave: Array<{ monthNumber: number; prompt: string }> = [];
+    // 新增：存储原始数据用于返回给前端
+    const rawDataCollection: Array<{ month: number; prompt: string; rawResponse: string }> = [];
 
     // 并发调用12次AI（每个月一次）
     // 所有请求使用同一个 client，复用 HTTP 连接
     const overviewLines = cards.map((card, index) => {
       const monthName = monthNames[index];
-      const position = card.reversed ? "逆位" : "正位";
-      // 这里只描述每个月抽到哪张牌和正逆位，不附带详细牌意
-      return `${monthName}抽到了${position}的${card.name}（${card.cnName}）。`;
+      // ja/ko/es 使用英文格式（匹配英文 Prompt）
+      const isEnglishBased = language === 'en' || language === 'ja' || language === 'ko' || language === 'es';
+      if (isEnglishBased) {
+        // English format: For January, the user drew Reversed Three of Cups.
+        const position = card.reversed ? "Reversed" : "Upright";
+        return `For ${monthName}, the user drew ${position} ${card.name}.`;
+      } else {
+        // Chinese format: 一月抽到了逆位的圣杯三。
+        const position = card.reversed ? "逆位" : "正位";
+        return `${monthName}抽到了${position}的${card.name}。`;
+      }
     });
     const overviewText = overviewLines.join('\n');
 
     const monthPromises = Array.from({ length: 12 }, async (_, index) => {
       const monthNumber = index + 1;
       const currentCard = cards[index];
-      const currentCardDetail = `${currentCard.name}（${currentCard.cnName}）\n\n${currentCard.cardInfo || ''}`;
+      const currentCardDetail = language === 'en'
+        ? `${currentCard.name}\n\n${currentCard.cardInfo || ''}`
+        : `${currentCard.name}（${currentCard.cnName}）\n\n${currentCard.cardInfo || ''}`;
 
-      const prompt = getAnnualFortunePrompt({
+      const prompt = annualForecast2026MonthlyPrompt[language]({
+        uid: '',
+        lang: language,
+        question: '',
+        history: '',
         overviewText,
         monthNumber,
         currentCardDetail,
-        nickName,
-        careerStatus,
-        gender,
-        loveStatus,
-        careerStatusLabel,
-        genderLabel,
-        loveStatusLabel,
+        userInfo: {
+          nickname: nickName,
+          gender,
+          careerStatus,
+          loveStatus
+        },
         timeInfo
       });
       
@@ -185,37 +233,70 @@ export async function POST(req: Request) {
       const requestStartTime = Date.now();
 
       try {
-        // 尝试使用 response_format（如果模型支持）
-        const requestOptions: any = {
-          model,
-          temperature: LLM_TEMPERATURES.annualMonth,
-          messages: [
-            {
-              role: "user",
-              content: prompt
-            }
-          ]
-        };
+        // 根据 provider 类型使用不同的 API 调用方式
+        let rawContent: string;
+        let tokenUsage: { prompt: number; completion: number; total: number } | undefined;
 
-        // OpenAI 的 gpt-4o-mini 支持 response_format，DeepSeek 可能不支持
-        if (provider === "openai") {
-          requestOptions.response_format = { type: "json_object" };
+        if (provider === "anthropic-haiku" || provider === "anthropic-sonnet") {
+          // Anthropic API 调用
+          const anthropicClient = client as Anthropic;
+          const response = await anthropicClient.messages.create({
+            model,
+            max_tokens: 4096,
+            temperature: LLM_TEMPERATURES.annualMonth,
+            messages: [{ role: "user", content: prompt }]
+          });
+
+          rawContent = response.content[0].type === 'text' ? response.content[0].text : "{}";
+
+          // Anthropic token usage
+          tokenUsage = {
+            prompt: response.usage.input_tokens,
+            completion: response.usage.output_tokens,
+            total: response.usage.input_tokens + response.usage.output_tokens
+          };
+        } else {
+          // OpenAI/DeepSeek API 调用
+          const openaiClient = client as OpenAI;
+          const requestOptions: any = {
+            model,
+            temperature: LLM_TEMPERATURES.annualMonth,
+            messages: [{ role: "user", content: prompt }]
+          };
+
+          if (provider === "openai") {
+            requestOptions.response_format = { type: "json_object" };
+          }
+
+          const response = await openaiClient.chat.completions.create(requestOptions);
+          rawContent = response.choices[0]?.message?.content || "{}";
+
+          tokenUsage = response.usage ? {
+            prompt: response.usage.prompt_tokens || 0,
+            completion: response.usage.completion_tokens || 0,
+            total: response.usage.total_tokens || 0
+          } : undefined;
         }
 
-        const response = await client.chat.completions.create(requestOptions);
-        
         // 记录网络请求结束时间
         const requestEndTime = Date.now();
         const requestDuration = requestEndTime - requestStartTime;
+
+        if (tokenUsage) {
+          timeStats.totalTokens.prompt += tokenUsage.prompt;
+          timeStats.totalTokens.completion += tokenUsage.completion;
+          timeStats.totalTokens.total += tokenUsage.total;
+        }
+
         timeStats.networkRequests.push({
           month: monthNumber,
           startTime: requestStartTime - startTime,
           endTime: requestEndTime - startTime,
-          duration: requestDuration
+          duration: requestDuration,
+          tokens: tokenUsage
         });
 
         const parseStartTime = Date.now();
-        const rawContent = response.choices[0]?.message?.content || "{}";
         let result: { keyword: string; content: string };
 
         try {
@@ -245,9 +326,18 @@ export async function POST(req: Request) {
             };
           }
         }
-        
+
         const parseEndTime = Date.now();
         timeStats.parsing += parseEndTime - parseStartTime;
+
+        // 新增：如果需要返回原始数据，保存到集合中
+        if (includeRawData) {
+          rawDataCollection.push({
+            month: monthNumber,
+            prompt,
+            rawResponse: rawContent
+          });
+        }
 
         return {
           month: monthNumber,
@@ -307,6 +397,13 @@ export async function POST(req: Request) {
       });
     });
 
+    // 调试日志
+    if (includeRawData) {
+      console.log('[调试] annual-fortune API 返回 rawData:', rawDataCollection.length, '个月份');
+    } else {
+      console.log('[调试] annual-fortune API 未请求 rawData (includeRawData =', includeRawData, ')');
+    }
+
     return NextResponse.json({
       ok: true,
       providerUsed: provider,
@@ -324,8 +421,11 @@ export async function POST(req: Request) {
         networkRequests: timeStats.networkRequests,
         totalNetworkTime: timeStats.totalNetworkTime,
         parsing: timeStats.parsing,
+        totalTokens: timeStats.totalTokens,
         other: timeStats.total - timeStats.preparation - timeStats.totalNetworkTime - timeStats.parsing
-      }
+      },
+      // 新增：有条件返回原始数据
+      ...(includeRawData && { rawData: rawDataCollection })
     });
   } catch (e: any) {
     console.error('[年度运势] API 错误:', e);
