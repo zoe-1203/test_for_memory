@@ -120,7 +120,7 @@ export async function POST(req: Request) {
       const anthropicClient = client as Anthropic;
       const response = await anthropicClient.messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         temperature: LLM_TEMPERATURES.annualSummary,
         messages: [{ role: "user", content: prompt }]
       });
