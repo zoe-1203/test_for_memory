@@ -209,22 +209,26 @@ export async function POST(req: Request) {
     timeStats.other = timeStats.total - timeStats.requestParsing - timeStats.promptGeneration - timeStats.aiApiCall - timeStats.responseParsing;
 
     // 异步保存 Prompt 文件（不阻塞响应，不计算在耗时内）
+    // 只在本地开发环境保存
+    const isProduction = process.env.VERCEL || process.env.NODE_ENV === 'production';
     const outputDir = path.join(process.cwd(), "data", "annual_fortune_prompts");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-    
-    setImmediate(() => {
-      try {
-        if (!fs.existsSync(outputDir)) {
-          fs.mkdirSync(outputDir, { recursive: true });
+
+    if (!isProduction) {
+      setImmediate(() => {
+        try {
+          if (!fs.existsSync(outputDir)) {
+            fs.mkdirSync(outputDir, { recursive: true });
+          }
+          const promptFileName = `summary_${timestamp}_prompt.txt`;
+          const promptFilePath = path.join(outputDir, promptFileName);
+          fs.writeFileSync(promptFilePath, prompt, "utf-8");
+          console.log(`[年度运势总览] Prompt 已保存到: ${promptFilePath}`);
+        } catch (error) {
+          console.error(`[年度运势总览] 保存 Prompt 失败:`, error);
         }
-        const promptFileName = `summary_${timestamp}_prompt.txt`;
-        const promptFilePath = path.join(outputDir, promptFileName);
-        fs.writeFileSync(promptFilePath, prompt, "utf-8");
-        console.log(`[年度运势总览] Prompt 已保存到: ${promptFilePath}`);
-      } catch (error) {
-        console.error(`[年度运势总览] 保存 Prompt 失败:`, error);
-      }
-    });
+      });
+    }
 
     // 调试日志
     if (includeRawData) {

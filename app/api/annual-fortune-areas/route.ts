@@ -111,9 +111,11 @@ export async function POST(req: Request) {
     const model = getModel(provider);
 
     // 准备输出目录 & 时间戳（保存 prompt 用）
+    // 只在本地开发环境保存，生产环境跳过
+    const isProduction = process.env.VERCEL || process.env.NODE_ENV === 'production';
     const outputDir = path.join(process.cwd(), "data", "annual_fortune_prompts");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-    if (!fs.existsSync(outputDir)) {
+    if (!isProduction && !fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
@@ -269,7 +271,7 @@ export async function POST(req: Request) {
 
         // 如果 AI 返回的 Json 中没有提供 hookSentece / hookSentence，
         // 说明这一轮输出结构可能不完整，把原始输出内容单独保存到 txt 方便排查。
-        if (!hookValue) {
+        if (!isProduction && !hookValue) {
           try {
             const safeAreaName = card.areaName.replace(/[\s\\/:*?"<>|]+/g, "_");
             const rawFileName = `area_${card.areaId}_${safeAreaName}_${timestamp}_raw_output.txt`;
@@ -334,20 +336,22 @@ export async function POST(req: Request) {
     }
     timeStats.total = elapsedTime;
 
-    // 异步保存 Prompt
-    setImmediate(() => {
-      promptsToSave.forEach(({ areaId, areaName, prompt }) => {
-        try {
-          const safeArea = areaId;
-          const promptFileName = `area_${safeArea}_${timestamp}_prompt.txt`;
-          const promptFilePath = path.join(outputDir, promptFileName);
-          fs.writeFileSync(promptFilePath, prompt, "utf-8");
-          console.log(`[年度运势领域] 领域 ${areaName} Prompt 已保存到: ${promptFilePath}`);
-        } catch (error) {
-          console.error(`[年度运势领域] 保存 Prompt 失败:`, error);
-        }
+    // 异步保存 Prompt（只在本地开发环境）
+    if (!isProduction) {
+      setImmediate(() => {
+        promptsToSave.forEach(({ areaId, areaName, prompt }) => {
+          try {
+            const safeArea = areaId;
+            const promptFileName = `area_${safeArea}_${timestamp}_prompt.txt`;
+            const promptFilePath = path.join(outputDir, promptFileName);
+            fs.writeFileSync(promptFilePath, prompt, "utf-8");
+            console.log(`[年度运势领域] 领域 ${areaName} Prompt 已保存到: ${promptFilePath}`);
+          } catch (error) {
+            console.error(`[年度运势领域] 保存 Prompt 失败:`, error);
+          }
+        });
       });
-    });
+    }
 
     return NextResponse.json({
       ok: true,

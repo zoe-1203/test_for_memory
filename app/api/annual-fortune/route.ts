@@ -168,11 +168,14 @@ export async function POST(req: Request) {
 
 
     // 准备保存 Prompt 文件的目录和时间戳（在时间统计之外准备）
+    // 只在本地开发环境保存 Prompt，生产环境（Vercel）跳过文件写入
+    const isProduction = process.env.VERCEL || process.env.NODE_ENV === 'production';
     const outputDir = path.join(process.cwd(), "data", "annual_fortune_prompts");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-    
+
     // 确保目录存在（同步操作，但很快，不影响统计）
-    if (!fs.existsSync(outputDir)) {
+    // 在生产环境跳过，避免 Vercel serverless 只读文件系统错误
+    if (!isProduction && !fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
@@ -381,21 +384,23 @@ export async function POST(req: Request) {
     timeStats.total = elapsedTime;
 
     // 异步保存所有 Prompt 文件（不阻塞响应，不计算在耗时内）
-    // 使用 setImmediate 确保在响应返回后才执行文件保存
-    setImmediate(() => {
-      const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-      promptsToSave.forEach(({ monthNumber, prompt }) => {
-        try {
-          const monthName = monthNames[monthNumber - 1];
-          const promptFileName = `month_${monthNumber}_${monthName}_${timestamp}_prompt.txt`;
-          const promptFilePath = path.join(outputDir, promptFileName);
-          fs.writeFileSync(promptFilePath, prompt, "utf-8");
-          console.log(`[年度运势] 第${monthNumber}月 Prompt 已保存到: ${promptFilePath}`);
-        } catch (error) {
-          console.error(`[年度运势] 保存第${monthNumber}月 Prompt 失败:`, error);
-        }
+    // 只在本地开发环境保存，生产环境跳过
+    if (!isProduction) {
+      setImmediate(() => {
+        const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+        promptsToSave.forEach(({ monthNumber, prompt }) => {
+          try {
+            const monthName = monthNames[monthNumber - 1];
+            const promptFileName = `month_${monthNumber}_${monthName}_${timestamp}_prompt.txt`;
+            const promptFilePath = path.join(outputDir, promptFileName);
+            fs.writeFileSync(promptFilePath, prompt, "utf-8");
+            console.log(`[年度运势] 第${monthNumber}月 Prompt 已保存到: ${promptFilePath}`);
+          } catch (error) {
+            console.error(`[年度运势] 保存第${monthNumber}月 Prompt 失败:`, error);
+          }
+        });
       });
-    });
+    }
 
     // 调试日志
     if (includeRawData) {
